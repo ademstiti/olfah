@@ -14,23 +14,32 @@ function getGreeting(lang) {
 }
 
 function computeInsight(jData, lang) {
-  const { mood, sleep, bmood, feeds, checks } = jData;
-  const wentOut = checks?.includes(7);
+  const { mood, sleep, nightWakes, bmood, feeds, feedType, feedIssues, symptoms, support } = jData;
+  const hasFever = symptoms?.includes(0);
+  const hasSevereFuss = symptoms?.includes(1);
+  const hasLatching = feedIssues?.includes(0);
+
   if (lang === "ar") {
+    if (hasFever) return "لاحظتِ حرارة — راقبيها باستمرار. لو حسّيتِ بأي شيء غير طبيعي، تواصلي مع طبيب.";
+    if (hasSevereFuss && sleep <= 4) return "يوم صعب مع قلة نوم وطفل متضايق — ضعيه في مكان آمن وخذي 5 دقائق لنفسك. ما تقدرين تعطين من كوب فاضي.";
     if (sleep <= 3) return "نمتِ أقل من 4 ساعات — حاولي تنامين مع طفلك في القيلولة القادمة، حتى 20 دقيقة تفرق.";
-    if (mood === 0) return "التعب في هذه المرحلة حقيقي تماماً. لا تترددي في طلب مساعدة أحد اليوم.";
-    if (feeds >= 8) return `${feeds} رضعات اليوم — هذا يعني إن طفلك ينمو بشكل ممتاز.`;
-    if (wentOut) return "خرجتِ اليوم — الهواء الطلق يساعد على تنظيم نوم الطفل ويحسن مزاجك.";
-    if (bmood <= 1) return "طفلك كان مضطرباً اليوم — جربي تدليك الظهر بلطف قبل النوم الليلة.";
-    if (mood >= 3) return "يبدو إنك بخير اليوم ✨ الأم المرتاحة هي كل شيء لطفلها.";
+    if (nightWakes >= 3) return "5 إيقاظات أو أكثر صعب — لو صار متكرر، ممكن يكون regression نوم. يستمر عادةً 2-4 أسابيع ثم يختفي.";
+    if (mood === 0 && support === 2) return "مرهقة ولحالك — اطلبي مساعدة أحد اليوم. هذا صعب جداً بدون دعم.";
+    if (feeds >= 10) return `${feeds} رضعات — يبدو رضاعة متقاربة. مرهقة بس طبيعية جداً خصوصاً وقت طفرات النمو.`;
+    if (feedType === "رضاعة طبيعية" && hasLatching) return "صعوبة اللحظة محبطة جداً. أخصائية رضاعة تقدر تفرق كثير — حتى جلسة واحدة تغير الأمور.";
+    if (mood >= 3) return "يبدو إنك بخير اليوم ✨ الأم المرتاحة والسعيدة هي أهم شيء لطفلها.";
+    if (bmood >= 3) return "طفلك سعيد اليوم 🥰 استمتعي باللحظة، تستاهلين.";
     return "سجّلتِ يومك — هذه العادة الصغيرة تساعدك تكتشفين أنماط طفلك مع الوقت.";
   }
+  if (hasFever) return "You flagged a fever — keep monitoring and trust your instincts. If anything feels off, reach out to a pediatrician.";
+  if (hasSevereFuss && sleep <= 4) return "Rough day — little sleep and a fussy baby. Put them somewhere safe and take 5 minutes for yourself. You can't pour from an empty cup.";
   if (sleep <= 3) return "Under 4 hours sleep — nap when baby naps. Even 20 minutes makes a real difference.";
-  if (mood === 0) return "This level of exhaustion is real. Ask someone for help today — it's not weakness, it's survival.";
-  if (feeds >= 8) return `${feeds} feeds today — your baby is working hard to grow. You're doing great.`;
-  if (wentOut) return "You got outside today. Daylight genuinely helps regulate your baby's sleep cycles.";
-  if (bmood <= 1) return "Fussy day for baby — a warm bath or gentle back rub before bed tonight might help.";
-  if (mood >= 3) return "You're having a good day ✨ A grounded mom is the most important thing right now.";
+  if (nightWakes >= 3) return "5+ wake-ups is a lot. If this is a pattern, it might be a sleep regression — usually lasts 2–4 weeks then passes on its own.";
+  if (mood === 0 && support === 2) return "Exhausted and on your own today — please reach out to someone. This is too hard to carry alone.";
+  if (feeds >= 10) return `${feeds} feeds sounds like cluster feeding. Exhausting but completely normal, especially during growth spurts.`;
+  if (feedType === "Breastfed" && hasLatching) return "Latching issues are so frustrating. A lactation consultant can make a huge difference — even just one session.";
+  if (mood >= 3) return "You're having a good day ✨ A grounded mom is the most important thing for your baby right now.";
+  if (bmood >= 3) return "Happy baby today 🥰 Take a moment to soak that in — you made that happen.";
   return "You logged your day — this small habit helps you spot your baby's patterns over time.";
 }
 
@@ -53,12 +62,29 @@ function getSuggestions(aiText, lang) {
   return ["أخبريني أكثر", "هل هذا طبيعي؟"];
 }
 
-async function askAI(msgs, age, lang) {
+function buildJournalContext(jData, lang) {
+  const t = T[lang];
+  const parts = [];
+  if (jData.mood >= 0) parts.push(`mom mood: ${t.jMoodL[jData.mood]}`);
+  if (jData.sleep > 0) parts.push(`sleep: ${jData.sleep}h`);
+  if (jData.nightWakes >= 0) parts.push(`night wakes: ${["none", "1-2x", "3-4x", "5+"][jData.nightWakes]}`);
+  if (jData.feedType) parts.push(`feeding: ${jData.feedType}`);
+  if (jData.feeds > 0) parts.push(`${jData.feeds} feeds`);
+  if (jData.feedIssues?.length) parts.push(`feed concerns: ${jData.feedIssues.map(i => t.jFeedIssueItems[i]).join(", ")}`);
+  if (jData.bmood >= 0) parts.push(`baby mood: ${t.jBMoodL[jData.bmood]}`);
+  if (jData.symptoms?.length) parts.push(`baby flags: ${jData.symptoms.map(i => t.jSymptomItems[i]).join(", ")}`);
+  if (jData.support >= 0) parts.push(`support at home: ${t.jSupportOpts[jData.support]}`);
+  if (jData.notes) parts.push(`mom's note: "${jData.notes}"`);
+  return parts.join(" | ");
+}
+
+async function askAI(msgs, age, lang, jContext) {
   const sys = `You are Olfah (ألفة), a warm motherhood assistant for moms in Qatar and the Gulf.
 
 Tone: Like a knowledgeable friend — warm, direct, never preachy or over-cautious. Never say "it's important to note", "as always", or add boilerplate disclaimers. Get to the answer first.
 Baby's age: ${age || "not specified"}.
 Language: ${lang === "ar" ? "Gulf Arabic dialect — natural, conversational, warm. Not formal MSA." : "English"}.
+${jContext ? `Today's check-in: ${jContext}` : ""}
 
 Topics: feeding (breast/formula/pumping/solids), sleep, diapers, milestones, postpartum recovery, crying, colic, bathing, baby skin, common illnesses, growth spurts, teething.
 Format: 2–3 short paragraphs. Lead with the direct answer. End with warmth, not warnings. No bullet lists.
@@ -124,12 +150,25 @@ const T = {
     bookAppt: "احجزي موعد", bookConfirm: "تم حجز الموعد ✓", bookSub: "غداً الساعة 10:00 صباحاً مع د. سارة",
     jTitle: "التسجيل اليومي", jSub: "كيف كان يومك أنتِ وطفلك؟", jSave: "حفظ التسجيل", jSkip: "تخطي",
     jMood: "كيف مزاجك اليوم؟", jMoods: ["😫", "😔", "😐", "🙂", "😊"], jMoodL: ["مرهقة", "متعبة", "عادي", "جيدة", "ممتازة"],
-    jSleep: "كم ساعة نمتِ الليلة الماضية؟", jSleepU: "ساعات",
+    jSleep: "كم ساعة نمتِ؟", jSleepU: "ساعات",
+    jNightWakes: "كم مرة أيقظك الطفل الليلة؟",
+    jWakeOpts: ["نام بدون إيقاظ 😴", "1-2 مرات 🌙", "3-4 مرات 🌒", "5+ مرات 😵"],
+    jFeedType: "كيف يرتضع طفلك؟",
+    jFeedTypes: ["رضاعة طبيعية", "حليب صناعي", "الاثنين", "مشفوط"],
+    jFeedIcons: ["🤱", "🍼", "🔄", "🥛"],
+    jFeeds: "كم رضعة اليوم؟", jFeedsU: "رضعات",
+    jFeedIssueLabel: "أي مشكلة في الرضاعة؟",
+    jFeedIssueItems: ["صعوبة اللحظة", "رفض الرضاعة", "رضاعة متقاربة", "غازات كثيرة", "مشكلة في الشفط"],
     jBabyMood: "مزاج طفلك اليوم؟", jBMoods: ["😭", "😣", "😐", "😄", "😴"], jBMoodL: ["كثير بكاء", "منزعج", "عادي", "سعيد", "هادئ"],
-    jFeeds: "كم رضعة اليوم؟", jFeedsU: "رضعات", jDiapers: "كم حفاضة غيّرتِ؟", jDiapersU: "حفاضات",
-    jChecklist: "تسجيل سريع",
-    jItems: ["رضاعة طبيعية", "رضاعة صناعية", "حليب مشفوط", "تقيؤ", "حازوقة", "طفح حفاض", "حرارة", "خرجنا من البيت"],
-    jNotes: "ملاحظات إضافية", jNotesPH: "أي شيء تبين تسجلينه اليوم...",
+    jSymptomLabel: "أي شيء تلاحظينه؟",
+    jSymptomItems: ["حرارة", "بكاء شديد +3 ساعات", "طفح جلدي", "براز غير طبيعي", "نعاس شديد", "قيء", "لا يأكل كافي"],
+    jSupportLabel: "عندك مساعدة في البيت اليوم؟",
+    jSupportOpts: ["نعم، في من يساعد", "أحياناً", "لحالي اليوم"],
+    jWellbeingPH: "قلق، لحظة جميلة، أو بس كيف تحسين...",
+    jStepNames: ["كيف حالك؟", "نومك", "الرضاعة", "طفلك اليوم", "أنتِ"],
+    jStepSubs: ["كوني صريحة مع نفسك", "نومك مهم بقدر نوم طفلك", "سجّلي ما تيسّر", "كيف كان طفلك؟", "هل في شيء على بالك؟"],
+    jStepIcons: ["🌸", "🌙", "🍼", "👶", "💙"],
+    jContinue: "التالي", jBack: "السابق",
     jSaved: "تم حفظ تسجيلك اليومي", jStreak: "5 أيام متتالية! 🔥",
     comTitle: "مجتمع الأمهات", comTabs: ["الكل", "مرحلتي", "النوم", "الرضاعة", "قريبات"],
     writePost: "شاركي تجربتك أو اسألي سؤال...", postBtn: "نشر", replies: "ردود", like: "إعجاب",
@@ -164,12 +203,25 @@ const T = {
     bookAppt: "Book Appointment", bookConfirm: "Appointment Booked ✓", bookSub: "Tomorrow at 10:00 AM with Dr. Sara",
     jTitle: "Daily Check-in", jSub: "How are you and your baby today?", jSave: "Save Check-in", jSkip: "Skip",
     jMood: "How are you feeling today?", jMoods: ["😫", "😔", "😐", "🙂", "😊"], jMoodL: ["Exhausted", "Tired", "Okay", "Good", "Great"],
-    jSleep: "Hours of sleep last night?", jSleepU: "hours",
+    jSleep: "How much did you sleep?", jSleepU: "hours",
+    jNightWakes: "How often did baby wake you?",
+    jWakeOpts: ["Slept through 😴", "1–2 times 🌙", "3–4 times 🌒", "5+ times 😵"],
+    jFeedType: "How is your baby feeding?",
+    jFeedTypes: ["Breastfed", "Formula", "Both", "Pumped"],
+    jFeedIcons: ["🤱", "🍼", "🔄", "🥛"],
+    jFeeds: "How many feeds today?", jFeedsU: "feeds",
+    jFeedIssueLabel: "Any feeding concerns?",
+    jFeedIssueItems: ["Latching issues", "Refusing feeds", "Cluster feeding", "Very gassy", "Pumping issues"],
     jBabyMood: "How is your baby today?", jBMoods: ["😭", "😣", "😐", "😄", "😴"], jBMoodL: ["Very fussy", "Unsettled", "Normal", "Happy", "Calm"],
-    jFeeds: "How many feeds today?", jFeedsU: "feeds", jDiapers: "Diaper changes?", jDiapersU: "diapers",
-    jChecklist: "Quick Log",
-    jItems: ["Breastfed", "Formula", "Pumped", "Spit-up", "Hiccups", "Diaper rash", "Fever", "Went outside"],
-    jNotes: "Extra notes", jNotesPH: "Anything you want to remember about today...",
+    jSymptomLabel: "Anything to flag today?",
+    jSymptomItems: ["Fever", "Fussy 3h+", "Skin rash", "Unusual stool", "Very sleepy", "Vomiting", "Not eating well"],
+    jSupportLabel: "Do you have support at home today?",
+    jSupportOpts: ["Yes, someone's helping", "Sometimes", "On my own today"],
+    jWellbeingPH: "A worry, a win, or just how you're feeling...",
+    jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
+    jStepSubs: ["Be honest with yourself", "Your rest matters too", "Log what you can", "How was your little one?", "Anything on your mind?"],
+    jStepIcons: ["🌸", "🌙", "🍼", "👶", "💙"],
+    jContinue: "Continue", jBack: "Back",
     jSaved: "Your daily check-in is saved", jStreak: "5-day streak! 🔥",
     comTitle: "Mom Community", comTabs: ["All", "My Stage", "Sleep", "Feeding", "Nearby"],
     writePost: "Share your experience or ask a question...", postBtn: "Post", replies: "replies", like: "Like",
@@ -303,7 +355,7 @@ export default function Olfah() {
   const [docSt, setDocSt] = useState(0);
   const [booked, setBooked] = useState(false);
   const [jStep, setJStep] = useState(0);
-  const [jData, setJData] = useState({ mood: -1, sleep: 5, bmood: -1, feeds: 6, diapers: 5, checks: [], notes: "" });
+  const [jData, setJData] = useState({ mood: -1, sleep: 5, nightWakes: -1, feedType: "", feeds: 6, feedIssues: [], bmood: -1, symptoms: [], diapers: 5, support: -1, notes: "" });
   const [jDone, setJDone] = useState(false);
   const [posts, setPosts] = useState([]);
   const [likedPosts, setLikedPosts] = useState({});
@@ -368,7 +420,8 @@ export default function Olfah() {
     const userMsg = { from: "user", text: text.trim(), ts: Date.now() };
     const newMsgs = [...msgs, userMsg];
     setMsgs(newMsgs); setInput(""); setLoading(true); setEsc(false);
-    const res = await askAI(newMsgs, age, lang);
+    const jCtx = jDone ? buildJournalContext(jData, lang) : "";
+    const res = await askAI(newMsgs, age, lang, jCtx);
     const aiMsg = { from: "ai", text: res.text, ts: Date.now() };
     const final = [...newMsgs, aiMsg];
     setMsgs(final); setLoading(false);
@@ -778,27 +831,36 @@ export default function Olfah() {
 
   // ─── JOURNAL ───
   if (scr === S.JOURNAL) {
-    const steps = 5, prog = ((jStep + 1) / steps) * 100;
+    const STEPS = 5;
+    const JBG = "#F4F8FB";
+    const sleepQuality = () => {
+      if (jData.sleep <= 2) return { label: lang === "ar" ? "صعب جداً 😮‍💨" : "Really rough 😮‍💨", color: WARN };
+      if (jData.sleep <= 4) return { label: lang === "ar" ? "مرهقة جداً" : "Very tired", color: WARN };
+      if (jData.sleep <= 6) return { label: lang === "ar" ? "قليل شوي" : "A bit short", color: "#F9A825" };
+      if (jData.sleep <= 8) return { label: lang === "ar" ? "مقبول" : "Decent", color: OK };
+      return { label: lang === "ar" ? "ممتاز! 🌟" : "Great! 🌟", color: OK };
+    };
+    const sq = sleepQuality();
 
     if (jDone && jStep === 0) return (
-      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 28px", direction: dir, fontFamily: ff }}>
+      <div className="screen-in" style={{ minHeight: "100vh", background: JBG, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 28px", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
-        <div className="fade-up" style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "white", marginBottom: 20, boxShadow: "0 8px 24px rgba(76,175,80,.3)" }}>✓</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1e2d3d", marginBottom: 6 }}>{t.jSaved}</div>
-        <div style={{ fontSize: 13, color: OK, fontWeight: 600, marginBottom: 20 }}>{t.jStreak}</div>
-        <div style={{ background: PL, borderRadius: 14, padding: "16px 18px", marginBottom: 24, border: `1px solid ${P}33`, width: "100%" }}>
-          <div style={{ fontSize: 13, color: PD, lineHeight: 1.6, textAlign: "center" }}>💡 {computeInsight(jData, lang)}</div>
+        <div className="fade-up" style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "white", marginBottom: 20, boxShadow: "0 8px 28px rgba(76,175,80,.28)" }}>✓</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.jSaved}</div>
+        <div style={{ fontSize: 13, color: OK, fontWeight: 600, marginBottom: 24 }}>{t.jStreak}</div>
+        <div style={{ background: "white", borderRadius: 18, padding: "18px 20px", marginBottom: 20, border: `1.5px solid ${P}22`, width: "100%", boxShadow: "0 2px 16px rgba(91,164,207,.1)" }}>
+          <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.7, textAlign: "center" }}>💡 {computeInsight(jData, lang)}</div>
         </div>
-        <div style={{ width: "100%", display: "flex", gap: 8, marginBottom: 30 }}>
+        <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 28 }}>
           {[
             { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "—", l: jData.mood >= 0 ? t.jMoodL[jData.mood] : t.yourMood },
             { v: jData.sleep, l: t.jSleepU },
             { v: jData.feeds, l: t.jFeedsU },
             { v: jData.bmood >= 0 ? t.jBMoods[jData.bmood] : "—", l: jData.bmood >= 0 ? t.jBMoodL[jData.bmood] : "" },
           ].map((x, i) => (
-            <div key={i} style={{ flex: 1, background: "white", borderRadius: 12, padding: "10px 6px", textAlign: "center", border: "1px solid #dde8f0" }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: PD }}>{x.v}</div>
-              <div style={{ fontSize: 9, color: "#7a8d9e", marginTop: 3, fontFamily: ff }}>{x.l}</div>
+            <div key={i} style={{ background: "white", borderRadius: 14, padding: "14px 10px", textAlign: "center", border: "1px solid #dde8f0", boxShadow: "0 1px 6px rgba(0,0,0,.04)" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: PD }}>{x.v}</div>
+              <div style={{ fontSize: 10, color: "#7a8d9e", marginTop: 4, fontFamily: ff }}>{x.l}</div>
             </div>
           ))}
         </div>
@@ -807,87 +869,184 @@ export default function Olfah() {
     );
 
     return (
-      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+      <div className="screen-in" style={{ minHeight: "100vh", background: JBG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
-        <div style={{ padding: "16px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+
+        {/* Header with dot progress */}
+        <div style={{ padding: "14px 20px", background: "white", borderBottom: "1px solid #e8eff4", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <button onClick={goHome} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#1e2d3d" }}>{t.jTitle}</div>
-          <button onClick={goHome} style={{ background: "none", border: "none", fontSize: 12, color: "#99aab5", fontFamily: ff }}>{t.jSkip}</button>
-        </div>
-
-        <div style={{ padding: "12px 22px 0" }}>
-          <div style={{ height: 4, borderRadius: 2, background: "#e4ecf2" }}>
-            <div style={{ height: 4, borderRadius: 2, background: PG, width: `${prog}%`, transition: "width .35s cubic-bezier(0.25,0.46,0.45,0.94)" }} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {Array.from({ length: STEPS }).map((_, i) => (
+              <div key={i} style={{ height: 6, borderRadius: 3, background: i <= jStep ? P : "#d0dce5", width: i === jStep ? 22 : 6, transition: "all .3s ease" }} />
+            ))}
           </div>
+          <button onClick={goHome} style={{ background: "none", border: "none", fontSize: 12, color: "#b0bec5", fontFamily: ff }}>{t.jSkip}</button>
         </div>
 
-        <div style={{ flex: 1, padding: "24px" }}>
-          {jStep === 0 && <div className="fade-up">
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 20 }}>{t.jMood}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+        {/* Step meta */}
+        <div key={`meta-${jStep}`} className="fade-up" style={{ padding: "28px 26px 0", textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 10 }}>{t.jStepIcons[jStep]}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#1e2d3d", marginBottom: 5 }}>{t.jStepNames[jStep]}</div>
+          <div style={{ fontSize: 13, color: "#99aab5" }}>{t.jStepSubs[jStep]}</div>
+        </div>
+
+        {/* Step content */}
+        <div key={`content-${jStep}`} className="fade-up" style={{ flex: 1, padding: "24px 20px", overflowY: "auto" }}>
+
+          {/* Step 0: Your mood */}
+          {jStep === 0 && (
+            <div style={{ display: "flex", gap: 8 }}>
               {t.jMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, mood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 4px", borderRadius: 14, border: jData.mood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.mood === i ? PL : "white", transform: jData.mood === i ? "scale(1.08)" : "scale(1)", transition: "all .18s" }}>
-                  <span style={{ fontSize: 30 }}>{e}</span>
-                  <span style={{ fontSize: 10, color: jData.mood === i ? PD : "#7a8d9e", fontWeight: 500, fontFamily: ff }}>{t.jMoodL[i]}</span>
+                <button key={i} onClick={() => setJData(d => ({ ...d, mood: i }))} style={{
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                  padding: "18px 4px", borderRadius: 20,
+                  border: `2px solid ${jData.mood === i ? P : "#e4ecf2"}`,
+                  background: jData.mood === i ? PL : "white",
+                  boxShadow: jData.mood === i ? `0 0 0 4px ${P}28` : "0 2px 8px rgba(0,0,0,.04)",
+                  transform: jData.mood === i ? "scale(1.07)" : "scale(1)",
+                  transition: "all .18s", fontFamily: ff,
+                }}>
+                  <span style={{ fontSize: 34 }}>{e}</span>
+                  <span style={{ fontSize: 9, color: jData.mood === i ? PD : "#99aab5", fontWeight: 600, textAlign: "center" }}>{t.jMoodL[i]}</span>
                 </button>
               ))}
             </div>
-          </div>}
+          )}
 
-          {jStep === 1 && <div className="fade-up">
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jSleep}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-              <input type="range" min="0" max="12" step=".5" value={jData.sleep} onChange={e => setJData(d => ({ ...d, sleep: +e.target.value }))} style={{ flex: 1, accentColor: P, height: 6 }} />
-              <div style={{ fontSize: 28, fontWeight: 700, color: PD, minWidth: 54, textAlign: "center" }}>{jData.sleep}<span style={{ fontSize: 11, fontWeight: 400, color: "#7a8d9e" }}> {t.jSleepU}</span></div>
+          {/* Step 1: Sleep + night wakes */}
+          {jStep === 1 && <>
+            <div style={{ background: "white", borderRadius: 20, padding: "24px 20px", marginBottom: 18, boxShadow: "0 2px 12px rgba(0,0,0,.05)" }}>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <span style={{ fontSize: 54, fontWeight: 700, color: sq.color }}>{jData.sleep}</span>
+                <span style={{ fontSize: 16, color: "#99aab5", marginLeft: 4 }}>{t.jSleepU}</span>
+                <div style={{ fontSize: 13, color: sq.color, marginTop: 6, fontWeight: 500 }}>{sq.label}</div>
+              </div>
+              <input type="range" min="0" max="12" step=".5" value={jData.sleep}
+                onChange={e => setJData(d => ({ ...d, sleep: +e.target.value }))}
+                style={{ width: "100%", accentColor: P, cursor: "pointer" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                <span style={{ fontSize: 10, color: "#c0cdd8" }}>0h</span>
+                <span style={{ fontSize: 10, color: "#c0cdd8" }}>12h</span>
+              </div>
             </div>
-            <div style={{ height: 1, background: "#e4ecf2", margin: "22px 0" }} />
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jBabyMood}</div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-              {t.jBMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, bmood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 14, border: jData.bmood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.bmood === i ? PL : "white", transform: jData.bmood === i ? "scale(1.08)" : "scale(1)", transition: "all .18s" }}>
-                  <span style={{ fontSize: 26 }}>{e}</span>
-                  <span style={{ fontSize: 9, color: jData.bmood === i ? PD : "#7a8d9e", fontWeight: 500, fontFamily: ff }}>{t.jBMoodL[i]}</span>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jNightWakes}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {t.jWakeOpts.map((opt, i) => (
+                <button key={i} onClick={() => setJData(d => ({ ...d, nightWakes: i }))} style={{
+                  padding: "16px 10px", borderRadius: 16, textAlign: "center",
+                  border: `2px solid ${jData.nightWakes === i ? P : "#e4ecf2"}`,
+                  background: jData.nightWakes === i ? PL : "white",
+                  boxShadow: jData.nightWakes === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
+                  fontSize: 12, fontWeight: jData.nightWakes === i ? 600 : 400,
+                  color: jData.nightWakes === i ? PD : "#3d5a73",
+                  transition: "all .15s", fontFamily: ff,
+                }}>{opt}</button>
+              ))}
+            </div>
+          </>}
+
+          {/* Step 2: Feeding */}
+          {jStep === 2 && <>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jFeedType}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
+              {t.jFeedTypes.map((label, i) => (
+                <button key={i} onClick={() => setJData(d => ({ ...d, feedType: label }))} style={{
+                  padding: "16px 10px", borderRadius: 16, textAlign: "center",
+                  border: `2px solid ${jData.feedType === label ? P : "#e4ecf2"}`,
+                  background: jData.feedType === label ? PL : "white",
+                  boxShadow: jData.feedType === label ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
+                  transition: "all .15s", fontFamily: ff,
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>{t.jFeedIcons[i]}</div>
+                  <div style={{ fontSize: 12, fontWeight: jData.feedType === label ? 600 : 400, color: jData.feedType === label ? PD : "#3d5a73" }}>{label}</div>
                 </button>
               ))}
             </div>
-          </div>}
-
-          {jStep === 2 && <div className="fade-up">
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jFeeds}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-              <button onClick={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>−</button>
-              <div style={{ flex: 1, textAlign: "center" }}><span style={{ fontSize: 40, fontWeight: 700, color: PD }}>{jData.feeds}</span><span style={{ fontSize: 13, color: "#7a8d9e", marginLeft: 4 }}>{t.jFeedsU}</span></div>
-              <button onClick={() => setJData(d => ({ ...d, feeds: d.feeds + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>+</button>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jFeeds}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, background: "white", borderRadius: 16, padding: "16px 20px", marginBottom: 22, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
+              <button onClick={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>−</button>
+              <div style={{ flex: 1, textAlign: "center" }}>
+                <span style={{ fontSize: 42, fontWeight: 700, color: PD }}>{jData.feeds}</span>
+                <span style={{ fontSize: 13, color: "#99aab5", marginLeft: 6 }}>{t.jFeedsU}</span>
+              </div>
+              <button onClick={() => setJData(d => ({ ...d, feeds: d.feeds + 1 }))} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>+</button>
             </div>
-            <div style={{ height: 1, background: "#e4ecf2", margin: "22px 0" }} />
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jDiapers}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <button onClick={() => setJData(d => ({ ...d, diapers: Math.max(0, d.diapers - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>−</button>
-              <div style={{ flex: 1, textAlign: "center" }}><span style={{ fontSize: 40, fontWeight: 700, color: PD }}>{jData.diapers}</span><span style={{ fontSize: 13, color: "#7a8d9e", marginLeft: 4 }}>{t.jDiapersU}</span></div>
-              <button onClick={() => setJData(d => ({ ...d, diapers: d.diapers + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>+</button>
-            </div>
-          </div>}
-
-          {jStep === 3 && <div className="fade-up">
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jChecklist}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#7a8d9e", marginBottom: 10 }}>{t.jFeedIssueLabel}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {t.jItems.map((item, i) => {
-                const on = jData.checks.includes(i);
-                return <button key={i} onClick={() => setJData(d => ({ ...d, checks: on ? d.checks.filter(c => c !== i) : [...d.checks, i] }))} style={{ padding: "10px 18px", borderRadius: 22, fontFamily: ff, border: on ? `2px solid ${P}` : "2px solid #d0dce5", background: on ? PL : "white", color: on ? PD : "#3d5a73", fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>{on ? "✓ " : ""}{item}</button>;
+              {t.jFeedIssueItems.map((item, i) => {
+                const on = jData.feedIssues?.includes(i);
+                return <button key={i} onClick={() => setJData(d => ({ ...d, feedIssues: on ? d.feedIssues.filter(x => x !== i) : [...(d.feedIssues || []), i] }))}
+                  style={{ padding: "9px 16px", borderRadius: 22, border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white", color: on ? PD : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>
+                  {on ? "✓ " : ""}{item}
+                </button>;
               })}
             </div>
-          </div>}
+          </>}
 
-          {jStep === 4 && <div className="fade-up">
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jNotes}</div>
-            <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))} placeholder={t.jNotesPH}
-              style={{ width: "100%", height: 160, padding: "16px", borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.65, color: "#1e2d3d" }} />
-          </div>}
+          {/* Step 3: Baby today */}
+          {jStep === 3 && <>
+            <div style={{ display: "flex", gap: 8, marginBottom: 26 }}>
+              {t.jBMoods.map((e, i) => (
+                <button key={i} onClick={() => setJData(d => ({ ...d, bmood: i }))} style={{
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                  padding: "16px 4px", borderRadius: 20,
+                  border: `2px solid ${jData.bmood === i ? P : "#e4ecf2"}`,
+                  background: jData.bmood === i ? PL : "white",
+                  boxShadow: jData.bmood === i ? `0 0 0 4px ${P}28` : "0 2px 8px rgba(0,0,0,.04)",
+                  transform: jData.bmood === i ? "scale(1.07)" : "scale(1)",
+                  transition: "all .18s", fontFamily: ff,
+                }}>
+                  <span style={{ fontSize: 30 }}>{e}</span>
+                  <span style={{ fontSize: 9, color: jData.bmood === i ? PD : "#99aab5", fontWeight: 600, textAlign: "center" }}>{t.jBMoodL[i]}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#7a8d9e", marginBottom: 10 }}>{t.jSymptomLabel}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {t.jSymptomItems.map((item, i) => {
+                const on = jData.symptoms?.includes(i);
+                return <button key={i} onClick={() => setJData(d => ({ ...d, symptoms: on ? d.symptoms.filter(x => x !== i) : [...(d.symptoms || []), i] }))}
+                  style={{ padding: "9px 16px", borderRadius: 22, border: `2px solid ${on ? WARN : "#d0dce5"}`, background: on ? "#FFF3E0" : "white", color: on ? WARN : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>
+                  {on ? "⚠ " : ""}{item}
+                </button>;
+              })}
+            </div>
+          </>}
+
+          {/* Step 4: Wellbeing */}
+          {jStep === 4 && <>
+            <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))}
+              placeholder={t.jWellbeingPH}
+              style={{ width: "100%", height: 120, padding: "16px", borderRadius: 18, border: "2px solid #e4ecf2", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.7, color: "#1e2d3d", marginBottom: 24, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jSupportLabel}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {t.jSupportOpts.map((opt, i) => (
+                <button key={i} onClick={() => setJData(d => ({ ...d, support: i }))} style={{
+                  padding: "16px 20px", borderRadius: 16, textAlign: rtl ? "right" : "left",
+                  border: `2px solid ${jData.support === i ? P : "#e4ecf2"}`,
+                  background: jData.support === i ? PL : "white",
+                  boxShadow: jData.support === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
+                  fontSize: 13, fontWeight: jData.support === i ? 600 : 400,
+                  color: jData.support === i ? PD : "#3d5a73",
+                  transition: "all .15s", fontFamily: ff,
+                }}>
+                  {jData.support === i ? "✓ " : ""}{opt}
+                </button>
+              ))}
+            </div>
+          </>}
         </div>
 
-        <div style={{ padding: "12px 24px env(safe-area-inset-bottom,20px)", display: "flex", gap: 10 }}>
-          {jStep > 0 && <Btn variant="outline" onClick={() => setJStep(s => s - 1)} style={{ flex: 1 }}>{rtl ? "→" : "←"}</Btn>}
-          <Btn full onClick={() => { if (jStep < steps - 1) setJStep(s => s + 1); else saveJournal(); }} style={{ flex: 3 }}>{jStep === steps - 1 ? t.jSave : rtl ? "←" : "→"}</Btn>
+        {/* Navigation */}
+        <div style={{ padding: "12px 22px env(safe-area-inset-bottom,20px)", background: "white", borderTop: "1px solid #e8eff4" }}>
+          <Btn full onClick={() => { if (jStep < STEPS - 1) setJStep(s => s + 1); else saveJournal(); }} style={{ marginBottom: 6 }}>
+            {jStep === STEPS - 1 ? t.jSave : t.jContinue}
+          </Btn>
+          {jStep > 0 && (
+            <button onClick={() => setJStep(s => s - 1)} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "8px", fontSize: 13, color: "#b0bec5", fontFamily: ff, textAlign: "center" }}>
+              {rtl ? "→" : "←"} {t.jBack}
+            </button>
+          )}
         </div>
       </div>
     );
