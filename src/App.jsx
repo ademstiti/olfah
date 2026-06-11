@@ -20,27 +20,27 @@ function computeInsight(jData, lang) {
   const hasLatching = feedIssues?.includes(0);
 
   if (lang === "ar") {
-    if (hasFever) return "لاحظتِ حرارة — راقبيها باستمرار. لو حسّيتِ بأي شيء غير طبيعي، تواصلي مع طبيب.";
-    if (hasSevereFuss && sleep <= 4) return "يوم صعب مع قلة نوم وطفل متضايق — ضعيه في مكان آمن وخذي 5 دقائق لنفسك. ما تقدرين تعطين من كوب فاضي.";
-    if (sleep <= 3) return "نمتِ أقل من 4 ساعات — حاولي تنامين مع طفلك في القيلولة القادمة، حتى 20 دقيقة تفرق.";
-    if (nightWakes >= 3) return "5 إيقاظات أو أكثر صعب — لو صار متكرر، ممكن يكون regression نوم. يستمر عادةً 2-4 أسابيع ثم يختفي.";
-    if (mood === 0 && support === 2) return "مرهقة ولحالك — اطلبي مساعدة أحد اليوم. هذا صعب جداً بدون دعم.";
-    if (feeds >= 10) return `${feeds} رضعات — يبدو رضاعة متقاربة. مرهقة بس طبيعية جداً خصوصاً وقت طفرات النمو.`;
-    if (feedType === "رضاعة طبيعية" && hasLatching) return "صعوبة اللحظة محبطة جداً. أخصائية رضاعة تقدر تفرق كثير — حتى جلسة واحدة تغير الأمور.";
+    if (hasFever) return "لاحظتِ حرارة, راقبيها باستمرار. لو حسّيتِ بأي شيء غير طبيعي، تواصلي مع طبيب.";
+    if (hasSevereFuss && sleep <= 4) return "يوم صعب مع قلة نوم وطفل متضايق, ضعيه في مكان آمن وخذي 5 دقائق لنفسك. ما تقدرين تعطين من كوب فاضي.";
+    if (sleep <= 3) return "نمتِ أقل من 4 ساعات, حاولي تنامين مع طفلك في القيلولة القادمة، حتى 20 دقيقة تفرق.";
+    if (nightWakes >= 3) return "5 إيقاظات أو أكثر صعب, لو صار متكرر، ممكن يكون regression نوم. يستمر عادةً 2-4 أسابيع ثم يختفي.";
+    if (mood === 0 && support === 2) return "مرهقة ولحالك, اطلبي مساعدة أحد اليوم. هذا صعب جداً بدون دعم.";
+    if (feeds >= 10) return `${feeds} رضعات, يبدو رضاعة متقاربة. مرهقة بس طبيعية جداً خصوصاً وقت طفرات النمو.`;
+    if (feedType === "رضاعة طبيعية" && hasLatching) return "صعوبة اللحظة محبطة جداً. أخصائية رضاعة تقدر تفرق كثير, حتى جلسة واحدة تغير الأمور.";
     if (mood >= 3) return "يبدو إنك بخير اليوم ✨ الأم المرتاحة والسعيدة هي أهم شيء لطفلها.";
     if (bmood >= 3) return "طفلك سعيد اليوم 🥰 استمتعي باللحظة، تستاهلين.";
-    return "سجّلتِ يومك — هذه العادة الصغيرة تساعدك تكتشفين أنماط طفلك مع الوقت.";
+    return "سجّلتِ يومك, هذه العادة الصغيرة تساعدك تكتشفين أنماط طفلك مع الوقت.";
   }
-  if (hasFever) return "You flagged a fever — keep monitoring and trust your instincts. If anything feels off, reach out to a pediatrician.";
-  if (hasSevereFuss && sleep <= 4) return "Rough day — little sleep and a fussy baby. Put them somewhere safe and take 5 minutes for yourself. You can't pour from an empty cup.";
-  if (sleep <= 3) return "Under 4 hours sleep — nap when baby naps. Even 20 minutes makes a real difference.";
-  if (nightWakes >= 3) return "5+ wake-ups is a lot. If this is a pattern, it might be a sleep regression — usually lasts 2–4 weeks then passes on its own.";
-  if (mood === 0 && support === 2) return "Exhausted and on your own today — please reach out to someone. This is too hard to carry alone.";
+  if (hasFever) return "You flagged a fever, keep monitoring and trust your instincts. If anything feels off, reach out to a pediatrician.";
+  if (hasSevereFuss && sleep <= 4) return "Rough day, little sleep and a fussy baby. Put them somewhere safe and take 5 minutes for yourself. You can't pour from an empty cup.";
+  if (sleep <= 3) return "Under 4 hours sleep, nap when baby naps. Even 20 minutes makes a real difference.";
+  if (nightWakes >= 3) return "5+ wake-ups is a lot. If this is a pattern, it might be a sleep regression, usually lasts 2–4 weeks then passes on its own.";
+  if (mood === 0 && support === 2) return "Exhausted and on your own today, please reach out to someone. This is too hard to carry alone.";
   if (feeds >= 10) return `${feeds} feeds sounds like cluster feeding. Exhausting but completely normal, especially during growth spurts.`;
-  if (feedType === "Breastfed" && hasLatching) return "Latching issues are so frustrating. A lactation consultant can make a huge difference — even just one session.";
+  if (feedType === "Breastfed" && hasLatching) return "Latching issues are so frustrating. A lactation consultant can make a huge difference, even just one session.";
   if (mood >= 3) return "You're having a good day ✨ A grounded mom is the most important thing for your baby right now.";
-  if (bmood >= 3) return "Happy baby today 🥰 Take a moment to soak that in — you made that happen.";
-  return "You logged your day — this small habit helps you spot your baby's patterns over time.";
+  if (bmood >= 3) return "Happy baby today 🥰 Take a moment to soak that in, you made that happen.";
+  return "You logged your day, this small habit helps you spot your baby's patterns over time.";
 }
 
 function getSuggestions(aiText, lang) {
@@ -81,15 +81,15 @@ function buildJournalContext(jData, lang) {
 async function askAI(msgs, age, lang, jContext) {
   const sys = `You are Olfah (ألفة), a warm motherhood assistant for moms in Qatar and the Gulf.
 
-Tone: Like a knowledgeable friend — warm, direct, never preachy or over-cautious. Never say "it's important to note", "as always", or add boilerplate disclaimers. Get to the answer first.
+Tone: Like a knowledgeable friend, warm, direct, never preachy or over-cautious. Never say "it's important to note", "as always", or add boilerplate disclaimers. Get to the answer first.
 Baby's age: ${age || "not specified"}.
-Language: ${lang === "ar" ? "Gulf Arabic dialect — natural, conversational, warm. Not formal MSA." : "English"}.
+Language: ${lang === "ar" ? "Gulf Arabic dialect, natural, conversational, warm. Not formal MSA." : "English"}.
 ${jContext ? `Today's check-in: ${jContext}` : ""}
 
 Topics: feeding (breast/formula/pumping/solids), sleep, diapers, milestones, postpartum recovery, crying, colic, bathing, baby skin, common illnesses, growth spurts, teething.
 Format: 2–3 short paragraphs. Lead with the direct answer. End with warmth, not warnings. No bullet lists.
 
-ESCALATE — add [ESCALATE] alone on the last line — only for real red flags:
+ESCALATE, add [ESCALATE] alone on the last line, only for real red flags:
 • Fever in any baby under 3 months (any temperature)
 • Fever >38.5°C in baby under 6 months
 • Difficulty breathing, fast breathing, grunting
@@ -134,10 +134,10 @@ const T = {
     home: "الرئيسية", chat: "اسألي", community: "المجتمع", journal: "التسجيل", profile: "حسابي",
     findDoc: "طبيب أطفال", docSub: "تواصلي الآن", comLabel: "مجتمع الأمهات", comSub: "انضمي للمجموعات",
     trackerLabel: "التسجيل اليومي", trackerSub: "سجّلي يومك", nearLabel: "أمهات قريبات", nearSub: "3 بالقرب منك",
-    todayLog: "سجل اليوم", noLog: "لم يتم التسجيل بعد — سجّلي يومك", logDone: "تم تسجيل اليوم ✓",
+    todayLog: "سجل اليوم", noLog: "لم يتم التسجيل بعد, سجّلي يومك", logDone: "تم تسجيل اليوم ✓",
     feeds: "رضعات", diapers: "حفاضات", sleepH: "ساعات نوم", yourMood: "مزاجك",
     aiName: "ألفة AI", online: "متصلة",
-    aiWelcome: "مرحباً! أنا ألفة. اسأليني أي شيء عن طفلك — رضاعة، نوم، نمو، أي شيء. أجاوب من الفور وأوصلك بطبيب إذا احتجتِ.",
+    aiWelcome: "مرحباً! أنا ألفة. اسأليني أي شيء عن طفلك, رضاعة، نوم، نمو، أي شيء. أجاوب من الفور وأوصلك بطبيب إذا احتجتِ.",
     typePH: "اكتبي سؤالك...", thinking: "ألفة تفكر",
     escalateMsg: "⚠️ هذا يحتاج تقييم طبيب أطفال.",
     connectDoc: "تواصلي مع طبيب أطفال الآن",
@@ -187,10 +187,10 @@ const T = {
     home: "Home", chat: "Ask", community: "Community", journal: "Journal", profile: "Profile",
     findDoc: "Pediatrician", docSub: "Connect now", comLabel: "Mom Community", comSub: "Join groups",
     trackerLabel: "Daily Check-in", trackerSub: "Log your day", nearLabel: "Nearby Moms", nearSub: "3 near you",
-    todayLog: "Today's Log", noLog: "No check-in yet — log your day", logDone: "Today's check-in done ✓",
+    todayLog: "Today's Log", noLog: "No check-in yet, log your day", logDone: "Today's check-in done ✓",
     feeds: "feeds", diapers: "diapers", sleepH: "hrs sleep", yourMood: "Mood",
     aiName: "Olfah AI", online: "Online",
-    aiWelcome: "Hi! I'm Olfah. Ask me anything about your baby — feeding, sleep, development, whatever's worrying you. I'll give you a straight answer, and connect you to a pediatrician when it matters.",
+    aiWelcome: "Hi! I'm Olfah. Ask me anything about your baby, feeding, sleep, development, whatever's worrying you. I'll give you a straight answer, and connect you to a pediatrician when it matters.",
     typePH: "Type your question...", thinking: "Olfah is thinking",
     escalateMsg: "⚠️ This may need a pediatrician's evaluation.",
     connectDoc: "Connect to Pediatrician Now",
@@ -240,7 +240,7 @@ const DEFAULT_POSTS = {
       likes: 23,
       replies: [
         { name: "فاطمة ع.", text: "والله مريت بنفس الشيء. عمرها 4 أشهر الحين وبدأت تنام لحالها. صبري قليل بعد 💙", time: "منذ 8 دقائق" },
-        { name: "سارة م.", text: "جربي الـ swaddle محكم وصوت أبيض — غيّرت حياتي تماماً", time: "منذ 5 دقائق" },
+        { name: "سارة م.", text: "جربي الـ swaddle محكم وصوت أبيض, غيّرت حياتي تماماً", time: "منذ 5 دقائق" },
       ],
     },
     {
@@ -248,7 +248,7 @@ const DEFAULT_POSTS = {
       text: "اليوم الثاني عشر بعد الولادة. أحب طفلي بس بكيت ساعتين ما أدري ليش. هل هذا طبيعي ولا أحتاج أكلم أحد؟",
       likes: 47,
       replies: [
-        { name: "مريم ت.", text: "طبيعي جداً، اسمه baby blues. بس لو استمر أكثر من أسبوعين كلمي دكتورتك — ما في ضعف في هذا 💙", time: "منذ ساعة" },
+        { name: "مريم ت.", text: "طبيعي جداً، اسمه baby blues. بس لو استمر أكثر من أسبوعين كلمي دكتورتك, ما في ضعف في هذا 💙", time: "منذ ساعة" },
       ],
     },
     {
@@ -259,7 +259,7 @@ const DEFAULT_POSTS = {
     },
     {
       id: "d4", name: "ليلى الكواري", badge: "حديث الولادة", time: "منذ 5 ساعات",
-      text: "استأجرت ممرضة ليلية 3 ليالي. أول نوم صحيح بعد 7 أسابيع. ما في أي ذنب في هذا — بالعكس أنصح الكل 😅",
+      text: "استأجرت ممرضة ليلية 3 ليالي. أول نوم صحيح بعد 7 أسابيع. ما في أي ذنب في هذا, بالعكس أنصح الكل 😅",
       likes: 34,
       replies: [
         { name: "نورة م.", text: "وين لقيتيها؟! أبي رقمها جداً 🙏", time: "منذ 4 ساعات" },
@@ -281,7 +281,7 @@ const DEFAULT_POSTS = {
       text: "Day 12 postpartum. I love my baby so much but I cried for two hours and I don't even know why. Normal or should I talk to someone?",
       likes: 47,
       replies: [
-        { name: "Maryam T.", text: "Totally normal — it's called baby blues. If it's still this intense after 2 weeks, mention it to your OB. Nothing to push through alone 💙", time: "1h ago" },
+        { name: "Maryam T.", text: "Totally normal, it's called baby blues. If it's still this intense after 2 weeks, mention it to your OB. Nothing to push through alone 💙", time: "1h ago" },
       ],
     },
     {
@@ -596,7 +596,7 @@ export default function Olfah() {
             <div style={{ display: "flex", gap: 6 }}>
               {[
                 { v: jData.feeds, l: t.feeds }, { v: jData.diapers, l: t.diapers }, { v: jData.sleep, l: t.sleepH },
-                { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "—", l: t.yourMood },
+                { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "-", l: t.yourMood },
               ].map((x, i) => (
                 <div key={i} style={{ flex: 1, background: PL, borderRadius: 10, padding: "8px 4px", textAlign: "center" }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: PD }}>{x.v}</div>
@@ -853,10 +853,10 @@ export default function Olfah() {
         </div>
         <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 28 }}>
           {[
-            { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "—", l: jData.mood >= 0 ? t.jMoodL[jData.mood] : t.yourMood },
+            { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "-", l: jData.mood >= 0 ? t.jMoodL[jData.mood] : t.yourMood },
             { v: jData.sleep, l: t.jSleepU },
             { v: jData.feeds, l: t.jFeedsU },
-            { v: jData.bmood >= 0 ? t.jBMoods[jData.bmood] : "—", l: jData.bmood >= 0 ? t.jBMoodL[jData.bmood] : "" },
+            { v: jData.bmood >= 0 ? t.jBMoods[jData.bmood] : "-", l: jData.bmood >= 0 ? t.jBMoodL[jData.bmood] : "" },
           ].map((x, i) => (
             <div key={i} style={{ background: "white", borderRadius: 14, padding: "14px 10px", textAlign: "center", border: "1px solid #dde8f0", boxShadow: "0 1px 6px rgba(0,0,0,.04)" }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: PD }}>{x.v}</div>
