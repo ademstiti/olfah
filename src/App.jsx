@@ -1,43 +1,88 @@
 import { useState, useEffect, useRef } from "react";
 
-/* ═══════════════════════════════════════════
-   OLFAH — Motherhood Support Platform for Qatar
-   ═══════════════════════════════════════════ */
-
-// ─── CONSTANTS ───
 const P = "#5BA4CF", PD = "#3D8AB8", PL = "#E8F4FA";
 const PG = "linear-gradient(135deg,#5BA4CF,#7BB8D9)";
 const BG = "#F8FBFD", OK = "#4CAF50", WARN = "#E65100";
 
-// ─── STORAGE HELPERS (localStorage) ───
-function store(k, v) {
-  try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.error(e); }
-}
-function load(k, fallback) {
-  try {
-    const r = localStorage.getItem(k);
-    return r !== null ? JSON.parse(r) : fallback;
-  } catch (e) { return fallback; }
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function load(k, fb) { try { const r = localStorage.getItem(k); return r !== null ? JSON.parse(r) : fb; } catch { return fb; } }
+
+function getGreeting(lang) {
+  const h = new Date().getHours();
+  if (lang === "ar") return h < 12 ? "صباح الخير" : h < 17 ? "مساء الخير" : "مساء النور";
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 
-// ─── AI (via server proxy) ───
+function computeInsight(jData, lang) {
+  const { mood, sleep, bmood, feeds, checks } = jData;
+  const wentOut = checks?.includes(7);
+  if (lang === "ar") {
+    if (sleep <= 3) return "نمتِ أقل من 4 ساعات — حاولي تنامين مع طفلك في القيلولة القادمة، حتى 20 دقيقة تفرق.";
+    if (mood === 0) return "التعب في هذه المرحلة حقيقي تماماً. لا تترددي في طلب مساعدة أحد اليوم.";
+    if (feeds >= 8) return `${feeds} رضعات اليوم — هذا يعني إن طفلك ينمو بشكل ممتاز.`;
+    if (wentOut) return "خرجتِ اليوم — الهواء الطلق يساعد على تنظيم نوم الطفل ويحسن مزاجك.";
+    if (bmood <= 1) return "طفلك كان مضطرباً اليوم — جربي تدليك الظهر بلطف قبل النوم الليلة.";
+    if (mood >= 3) return "يبدو إنك بخير اليوم ✨ الأم المرتاحة هي كل شيء لطفلها.";
+    return "سجّلتِ يومك — هذه العادة الصغيرة تساعدك تكتشفين أنماط طفلك مع الوقت.";
+  }
+  if (sleep <= 3) return "Under 4 hours sleep — nap when baby naps. Even 20 minutes makes a real difference.";
+  if (mood === 0) return "This level of exhaustion is real. Ask someone for help today — it's not weakness, it's survival.";
+  if (feeds >= 8) return `${feeds} feeds today — your baby is working hard to grow. You're doing great.`;
+  if (wentOut) return "You got outside today. Daylight genuinely helps regulate your baby's sleep cycles.";
+  if (bmood <= 1) return "Fussy day for baby — a warm bath or gentle back rub before bed tonight might help.";
+  if (mood >= 3) return "You're having a good day ✨ A grounded mom is the most important thing right now.";
+  return "You logged your day — this small habit helps you spot your baby's patterns over time.";
+}
+
+function getSuggestions(aiText, lang) {
+  if (!aiText) return [];
+  const t = aiText.toLowerCase();
+  if (lang === "en") {
+    if (t.includes("sleep") || t.includes("nap")) return ["How long should each nap be?", "What if they won't settle?", "Is this a sleep regression?"];
+    if (t.includes("feed") || t.includes("milk") || t.includes("nursing") || t.includes("formula")) return ["How do I know they're full?", "How often should I feed?", "Can I mix breast and formula?"];
+    if (t.includes("cry") || t.includes("colic") || t.includes("fuss")) return ["How do I soothe them?", "Could it be colic?", "When does this get better?"];
+    if (t.includes("poop") || t.includes("diaper") || t.includes("stool")) return ["What color is normal?", "How often is normal?"];
+    if (t.includes("fever") || t.includes("temperature")) return ["When should I be worried?", "How to take temp correctly?"];
+    if (t.includes("rash") || t.includes("skin")) return ["What cream should I use?", "Is it contagious?"];
+    return ["Tell me more", "What should I watch for?"];
+  }
+  if (t.includes("نوم") || t.includes("ينام")) return ["كم ساعة النوم الطبيعي؟", "ماذا لو رفض النوم؟"];
+  if (t.includes("رضاعة") || t.includes("حليب")) return ["كيف أعرف إنه شبع؟", "هل الحليب الصناعي جيد؟"];
+  if (t.includes("بكاء") || t.includes("يبكي") || t.includes("مغص")) return ["كيف أهدئه؟", "هل هذا مغص؟", "متى يتحسن؟"];
+  if (t.includes("حرارة") || t.includes("حمى")) return ["متى أقلق؟", "كيف أقيس الحرارة صح؟"];
+  return ["أخبريني أكثر", "هل هذا طبيعي؟"];
+}
+
 async function askAI(msgs, age, lang) {
-  const sys = `You are Olfah (ألفة), a warm, supportive AI motherhood assistant for mothers in Qatar/Gulf.
-RULES:
-1. Answer everyday baby care: feeding, sleep, diapers, milestones, postpartum, crying, bathing.
-2. You are NOT a doctor. Give guidance based on general pediatric knowledge.
-3. TRIAGE: If the question involves fever (especially newborn <3mo), rash+fever, breathing difficulty, refusing feeds, lethargy, blood in stool/vomit, injury, jaundice, seizures, "getting worse", or dehydration — end your response with [ESCALATE] on its own line.
-4. For everyday questions, give clear reassuring answers. Do NOT add [ESCALATE].
-5. Keep answers 2-3 short paragraphs max. Be warm, never dismissive.
-6. Respond in ${lang === "ar" ? "Arabic (Gulf dialect)" : "English"}.
-7. Baby age: ${age || "not specified"}.
-8. Never say "I'm just an AI" or add generic disclaimers.`;
+  const sys = `You are Olfah (ألفة), a warm motherhood assistant for moms in Qatar and the Gulf.
+
+Tone: Like a knowledgeable friend — warm, direct, never preachy or over-cautious. Never say "it's important to note", "as always", or add boilerplate disclaimers. Get to the answer first.
+Baby's age: ${age || "not specified"}.
+Language: ${lang === "ar" ? "Gulf Arabic dialect — natural, conversational, warm. Not formal MSA." : "English"}.
+
+Topics: feeding (breast/formula/pumping/solids), sleep, diapers, milestones, postpartum recovery, crying, colic, bathing, baby skin, common illnesses, growth spurts, teething.
+Format: 2–3 short paragraphs. Lead with the direct answer. End with warmth, not warnings. No bullet lists.
+
+ESCALATE — add [ESCALATE] alone on the last line — only for real red flags:
+• Fever in any baby under 3 months (any temperature)
+• Fever >38.5°C in baby under 6 months
+• Difficulty breathing, fast breathing, grunting
+• Refusing all feeds for 6+ hours
+• Unusual lethargy or very hard to wake
+• Blood in stool or vomit
+• Jaundice spreading to belly/legs after day 5
+• Seizures, dehydration signs (no wet diaper 6+ hrs)
+• Parent says symptoms are "getting worse"
+
+Do NOT escalate for: normal fussiness, cluster feeding, hiccups, mild spit-up, development questions.
+Never say "I'm just an AI". Never end with disclaimers.`;
+
   try {
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 800,
         system: sys,
         messages: msgs.map(m => ({ role: m.from === "user" ? "user" : "assistant", content: m.text })),
@@ -47,34 +92,33 @@ RULES:
     const txt = d.content?.[0]?.text || "Sorry, please try again.";
     const esc = txt.includes("[ESCALATE]");
     return { text: txt.replace(/\[ESCALATE\]/g, "").trim(), escalate: esc };
-  } catch (e) {
+  } catch {
     return { text: "Connection error. Please try again.", escalate: false };
   }
 }
 
-// ─── TRANSLATIONS ───
 const T = {
   ar: {
     appName: "ألفة", splash: "اسألي. اعرفي. تواصلي.",
     onboardTitle: "مرحباً بك في ألفة", onboardSub: "أخبرينا عن طفلك", onboardHelp: "هذا يساعدنا في تقديم النصيحة المناسبة",
     ageLabel: "عمر الطفل", ages: ["حديث الولادة (0-4 أسابيع)", "1-3 أشهر", "3-6 أشهر", "6-12 شهر"],
     langLabel: "اللغة المفضلة", start: "ابدأي الآن",
-    hi: "مساء الخير", howHelp: "كيف تقدر ألفة تساعدك؟",
-    askTitle: "اسألي ألفة", askSub: "احصلي على إجابات فورية لأسئلتك",
+    howHelp: "كيف تقدر ألفة تساعدك؟",
+    askTitle: "اسألي ألفة", askSub: "إجابات فورية لأي سؤال عن طفلك",
     home: "الرئيسية", chat: "اسألي", community: "المجتمع", journal: "التسجيل", profile: "حسابي",
     findDoc: "طبيب أطفال", docSub: "تواصلي الآن", comLabel: "مجتمع الأمهات", comSub: "انضمي للمجموعات",
     trackerLabel: "التسجيل اليومي", trackerSub: "سجّلي يومك", nearLabel: "أمهات قريبات", nearSub: "3 بالقرب منك",
     todayLog: "سجل اليوم", noLog: "لم يتم التسجيل بعد — سجّلي يومك", logDone: "تم تسجيل اليوم ✓",
     feeds: "رضعات", diapers: "حفاضات", sleepH: "ساعات نوم", yourMood: "مزاجك",
-    aiName: "ألفة AI", online: "متصلة — جاهزة للمساعدة",
-    aiWelcome: "مرحباً! أنا ألفة، مساعدتك في الأمومة. اسأليني أي سؤال عن رعاية طفلك. سأساعدك إذا أمكن، وأوصلك بطبيب أطفال إذا لزم الأمر.",
-    typePH: "اكتبي سؤالك...", thinking: "ألفة تفكر...",
-    escalateMsg: "⚠️ يبدو أن هذا يحتاج تقييم طبيب أطفال.",
+    aiName: "ألفة AI", online: "متصلة",
+    aiWelcome: "مرحباً! أنا ألفة. اسأليني أي شيء عن طفلك — رضاعة، نوم، نمو، أي شيء. أجاوب من الفور وأوصلك بطبيب إذا احتجتِ.",
+    typePH: "اكتبي سؤالك...", thinking: "ألفة تفكر",
+    escalateMsg: "⚠️ هذا يحتاج تقييم طبيب أطفال.",
     connectDoc: "تواصلي مع طبيب أطفال الآن",
-    docTitle: "الاتصال بطبيب أطفال", finding: "جاري البحث عن طبيب متاح...", sharing: "مشاركة سجل محادثتك",
-    drName: "د. سارة المحمود", drSpec: "طبيبة أطفال · سدرة للطب", drAvail: "متاحة الآن", drConnected: "تم الاتصال!",
-    drHas: "د. سارة لديها محادثتك مع ألفة",
-    drMsg: "مرحباً، أنا د. سارة. راجعت ما شاركتيه مع ألفة. كيف أقدر أساعدك؟",
+    docTitle: "الاتصال بطبيب أطفال", finding: "نبحث عن طبيب متاح...", sharing: "مشاركة سجل محادثتك",
+    drName: "د. سارة المحمود", drSpec: "طبيبة أطفال · سدرة للطب", drAvail: "متاحة الآن", drConnected: "تم الاتصال",
+    drHas: "د. سارة استلمت ملخص محادثتك مع ألفة",
+    drMsg: "مرحباً، أنا د. سارة. شفت اللي شاركتيه مع ألفة. كيف أقدر أساعدك؟",
     drSees: "د. سارة تقدر تشوف سجلات الرضاعة والنوم من ألفة",
     replyDoc: "ردي على د. سارة...", avgTime: "متوسط وقت الاتصال: أقل من 3 دقائق",
     bookAppt: "احجزي موعد", bookConfirm: "تم حجز الموعد ✓", bookSub: "غداً الساعة 10:00 صباحاً مع د. سارة",
@@ -86,8 +130,7 @@ const T = {
     jChecklist: "تسجيل سريع",
     jItems: ["رضاعة طبيعية", "رضاعة صناعية", "حليب مشفوط", "تقيؤ", "حازوقة", "طفح حفاض", "حرارة", "خرجنا من البيت"],
     jNotes: "ملاحظات إضافية", jNotesPH: "أي شيء تبين تسجلينه اليوم...",
-    jSaved: "تم حفظ تسجيلك اليومي", jStreak: "سلسلة 5 أيام متتالية!",
-    jInsight: "نلاحظ إن طفلك ينام أفضل في الأيام اللي تخرجون فيها",
+    jSaved: "تم حفظ تسجيلك اليومي", jStreak: "5 أيام متتالية! 🔥",
     comTitle: "مجتمع الأمهات", comTabs: ["الكل", "مرحلتي", "النوم", "الرضاعة", "قريبات"],
     writePost: "شاركي تجربتك أو اسألي سؤال...", postBtn: "نشر", replies: "ردود", like: "إعجاب",
     replyPH: "اكتبي رد...", replyBtn: "رد",
@@ -97,25 +140,25 @@ const T = {
   },
   en: {
     appName: "Olfah", splash: "Ask. Know. Connect.",
-    onboardTitle: "Welcome to Olfah", onboardSub: "Tell us about your little one", onboardHelp: "This helps us give you the right guidance",
+    onboardTitle: "Welcome to Olfah", onboardSub: "Tell us about your little one", onboardHelp: "This helps us give the right advice",
     ageLabel: "Baby's age", ages: ["Newborn (0-4 weeks)", "1-3 months", "3-6 months", "6-12 months"],
     langLabel: "Language", start: "Get Started",
-    hi: "Good evening", howHelp: "How can Olfah help?",
-    askTitle: "Ask Olfah", askSub: "Get instant answers to your baby care questions",
+    howHelp: "What's on your mind?",
+    askTitle: "Ask Olfah", askSub: "Instant answers to any baby care question",
     home: "Home", chat: "Ask", community: "Community", journal: "Journal", profile: "Profile",
     findDoc: "Pediatrician", docSub: "Connect now", comLabel: "Mom Community", comSub: "Join groups",
     trackerLabel: "Daily Check-in", trackerSub: "Log your day", nearLabel: "Nearby Moms", nearSub: "3 near you",
     todayLog: "Today's Log", noLog: "No check-in yet — log your day", logDone: "Today's check-in done ✓",
     feeds: "feeds", diapers: "diapers", sleepH: "hrs sleep", yourMood: "Mood",
-    aiName: "Olfah AI", online: "Online — ready to help",
-    aiWelcome: "Hi! I'm Olfah, your motherhood assistant. Ask me anything about your baby's care. I'll help if I can, and connect you to a pediatrician if needed.",
-    typePH: "Type your question...", thinking: "Olfah is thinking...",
+    aiName: "Olfah AI", online: "Online",
+    aiWelcome: "Hi! I'm Olfah. Ask me anything about your baby — feeding, sleep, development, whatever's worrying you. I'll give you a straight answer, and connect you to a pediatrician when it matters.",
+    typePH: "Type your question...", thinking: "Olfah is thinking",
     escalateMsg: "⚠️ This may need a pediatrician's evaluation.",
     connectDoc: "Connect to Pediatrician Now",
-    docTitle: "Pediatrician Connect", finding: "Finding available pediatrician...", sharing: "Sharing your conversation history",
-    drName: "Dr. Sara Al-Mahmoud", drSpec: "Pediatrician · Sidra Medicine", drAvail: "Available now", drConnected: "Connected!",
-    drHas: "Dr. Sara has your AI conversation",
-    drMsg: "Hi, I'm Dr. Sara. I've reviewed what you shared with Olfah. How can I help you today?",
+    docTitle: "Pediatrician Connect", finding: "Finding an available pediatrician...", sharing: "Sharing your conversation with Olfah",
+    drName: "Dr. Sara Al-Mahmoud", drSpec: "Pediatrician · Sidra Medicine", drAvail: "Available now", drConnected: "Connected",
+    drHas: "Dr. Sara has received your conversation summary",
+    drMsg: "Hi, I'm Dr. Sara. I've reviewed what you shared with Olfah. What would you like to talk through?",
     drSees: "Dr. Sara can see your baby's feeding and sleep logs from Olfah",
     replyDoc: "Reply to Dr. Sara...", avgTime: "Average connection time: under 3 minutes",
     bookAppt: "Book Appointment", bookConfirm: "Appointment Booked ✓", bookSub: "Tomorrow at 10:00 AM with Dr. Sara",
@@ -127,8 +170,7 @@ const T = {
     jChecklist: "Quick Log",
     jItems: ["Breastfed", "Formula", "Pumped", "Spit-up", "Hiccups", "Diaper rash", "Fever", "Went outside"],
     jNotes: "Extra notes", jNotesPH: "Anything you want to remember about today...",
-    jSaved: "Your daily check-in is saved", jStreak: "5-day streak!",
-    jInsight: "We notice your baby sleeps better on days you go outside",
+    jSaved: "Your daily check-in is saved", jStreak: "5-day streak! 🔥",
     comTitle: "Mom Community", comTabs: ["All", "My Stage", "Sleep", "Feeding", "Nearby"],
     writePost: "Share your experience or ask a question...", postBtn: "Post", replies: "replies", like: "Like",
     replyPH: "Write a reply...", replyBtn: "Reply",
@@ -140,18 +182,73 @@ const T = {
 
 const DEFAULT_POSTS = {
   ar: [
-    { id: "d1", name: "نورة م.", badge: "1-3 أشهر", time: "قبل ساعتين", text: "حد ثاني طفله يرضع كل شوي بالليل؟ طفلي يبي يرضع كل 30 دقيقة من 6 لـ 10 المساء", likes: 4, replies: [] },
-    { id: "d2", name: "فاطمة ك.", badge: "حديث الولادة", time: "قبل 4 ساعات", text: "أم لأول مرة. هل طبيعي إن طفلي عمره أسبوعين يزغط بعد كل رضعة؟", likes: 7, replies: [] },
-    { id: "d3", name: "عائشة ر.", badge: "قريبة · اللؤلؤة", time: "قبل 5 ساعات", text: "أي أمهات في منطقة اللؤلؤة يبون نسوي مشي بالعربانة نهاية الأسبوع؟", likes: 12, replies: [] },
+    {
+      id: "d1", name: "نورة المنصور", badge: "1-3 أشهر", time: "منذ 14 دقيقة",
+      text: "الساعة 3 الفجر وطفلتي ما تنام إلا وأنا ماسكتها. لحظة ما أحطها تبكي. جربت كل شيء. قوليلي هذا يخلص 😭",
+      likes: 23,
+      replies: [
+        { name: "فاطمة ع.", text: "والله مريت بنفس الشيء. عمرها 4 أشهر الحين وبدأت تنام لحالها. صبري قليل بعد 💙", time: "منذ 8 دقائق" },
+        { name: "سارة م.", text: "جربي الـ swaddle محكم وصوت أبيض — غيّرت حياتي تماماً", time: "منذ 5 دقائق" },
+      ],
+    },
+    {
+      id: "d2", name: "هنا الأحمد", badge: "حديث الولادة", time: "منذ ساعتين",
+      text: "اليوم الثاني عشر بعد الولادة. أحب طفلي بس بكيت ساعتين ما أدري ليش. هل هذا طبيعي ولا أحتاج أكلم أحد؟",
+      likes: 47,
+      replies: [
+        { name: "مريم ت.", text: "طبيعي جداً، اسمه baby blues. بس لو استمر أكثر من أسبوعين كلمي دكتورتك — ما في ضعف في هذا 💙", time: "منذ ساعة" },
+      ],
+    },
+    {
+      id: "d3", name: "مريم التميمي", badge: "3-6 أشهر", time: "منذ 3 ساعات",
+      text: "طفلتي ضحكت اليوم لأول مرة وهي تشوف المروحة تدور. بكيت من الفرحة 🥹 هذه اللحظات تنسيك كل الإرهاق",
+      likes: 89,
+      replies: [],
+    },
+    {
+      id: "d4", name: "ليلى الكواري", badge: "حديث الولادة", time: "منذ 5 ساعات",
+      text: "استأجرت ممرضة ليلية 3 ليالي. أول نوم صحيح بعد 7 أسابيع. ما في أي ذنب في هذا — بالعكس أنصح الكل 😅",
+      likes: 34,
+      replies: [
+        { name: "نورة م.", text: "وين لقيتيها؟! أبي رقمها جداً 🙏", time: "منذ 4 ساعات" },
+      ],
+    },
   ],
   en: [
-    { id: "d1", name: "Nora M.", badge: "1-3 months", time: "2h ago", text: "Anyone else's baby cluster feeding in the evening? Mine wants to feed every 30 minutes from 6-10 PM", likes: 4, replies: [] },
-    { id: "d2", name: "Fatima K.", badge: "Newborn", time: "4h ago", text: "First-time mom here. Is it normal for my 2-week-old to hiccup after every feed?", likes: 7, replies: [] },
-    { id: "d3", name: "Aisha R.", badge: "Nearby · The Pearl", time: "5h ago", text: "Any moms in The Pearl area want to do a stroller walk this weekend?", likes: 12, replies: [] },
+    {
+      id: "d1", name: "Rachel B.", badge: "1-3 months", time: "14 min ago",
+      text: "3am and she won't sleep unless I'm holding her. The second I put her down she screams. My arms are done. Tell me this ends? 😭",
+      likes: 23,
+      replies: [
+        { name: "Fatima K.", text: "My girl did this until 4 months then just... stopped. You're so close, I promise 💙", time: "8 min ago" },
+        { name: "Sara M.", text: "Tight swaddle + white noise changed everything for us. Absolute game changer.", time: "5 min ago" },
+      ],
+    },
+    {
+      id: "d2", name: "Hana A.", badge: "Newborn", time: "2h ago",
+      text: "Day 12 postpartum. I love my baby so much but I cried for two hours and I don't even know why. Normal or should I talk to someone?",
+      likes: 47,
+      replies: [
+        { name: "Maryam T.", text: "Totally normal — it's called baby blues. If it's still this intense after 2 weeks, mention it to your OB. Nothing to push through alone 💙", time: "1h ago" },
+      ],
+    },
+    {
+      id: "d3", name: "Maryam T.", badge: "3-6 months", time: "3h ago",
+      text: "My baby laughed for the first time today watching the ceiling fan spin. I actually sobbed. These moments make the 3am feeds worth it 🥹",
+      likes: 89,
+      replies: [],
+    },
+    {
+      id: "d4", name: "Leila M.", badge: "Newborn", time: "5h ago",
+      text: "Hired a night nanny for 3 nights. First real sleep in 7 weeks. Zero shame, 10/10 recommend. You cannot pour from an empty cup.",
+      likes: 34,
+      replies: [
+        { name: "Rachel B.", text: "Where did you find her?? I need this desperately 🙏", time: "4h ago" },
+      ],
+    },
   ],
 };
 
-// ─── SVG ICONS ───
 const IC = {
   home: (c) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>,
   chat: (c) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
@@ -165,26 +262,33 @@ const IC = {
   send: <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>,
   cam: (c) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>,
   vid: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polygon points="23 7 16 12 23 17" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>,
-  heart: (c) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>,
+  heart: (c, filled) => <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? c : "none"} stroke={c} strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>,
   plus: (c) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 8v8M8 12h8" /></svg>,
   back: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1e2d3d" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>,
 };
 
-// ─── SCREENS ───
 const S = { SPLASH: 0, ONBOARD: 1, HOME: 2, CHAT: 3, DOC: 4, COMMUNITY: 5, JOURNAL: 6 };
 
-// ─── GLOBAL STYLES ───
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html, body, #root { height:100%; }
 input,textarea,button { font-family:inherit; }
 input::placeholder,textarea::placeholder { color:#99aab5; }
+::-webkit-scrollbar { display:none; }
+button { cursor:pointer; }
+button:not([disabled]) { transition: transform .12s ease, opacity .12s ease; }
+button:not([disabled]):active { transform: scale(0.95); opacity: 0.85; }
 @keyframes spin { to { transform:rotate(360deg); } }
-@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-@keyframes pulse { 0%,100% { opacity:.4; } 50% { opacity:1; } }
-.fade-up { animation: fadeUp .4s ease both; }
-.dot-pulse { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+@keyframes screenIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+@keyframes typingDot { 0%,60%,100% { transform:translateY(0); opacity:.35; } 30% { transform:translateY(-4px); opacity:1; } }
+@keyframes onlinePulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+@keyframes chipIn { from { opacity:0; transform:translateY(4px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+.fade-up { animation: fadeUp .35s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+.screen-in { animation: screenIn .22s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+.chip-in { animation: chipIn .2s ease both; }
+.online-dot { animation: onlinePulse 2s ease-in-out infinite; }
 `;
 
 export default function Olfah() {
@@ -192,6 +296,7 @@ export default function Olfah() {
   const [lang, setLang] = useState("ar");
   const [age, setAge] = useState("");
   const [msgs, setMsgs] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [esc, setEsc] = useState(false);
@@ -201,6 +306,7 @@ export default function Olfah() {
   const [jData, setJData] = useState({ mood: -1, sleep: 5, bmood: -1, feeds: 6, diapers: 5, checks: [], notes: "" });
   const [jDone, setJDone] = useState(false);
   const [posts, setPosts] = useState([]);
+  const [likedPosts, setLikedPosts] = useState({});
   const [newPost, setNewPost] = useState("");
   const [replyText, setReplyText] = useState({});
   const [openReply, setOpenReply] = useState(null);
@@ -213,7 +319,6 @@ export default function Olfah() {
   const dir = rtl ? "rtl" : "ltr";
   const ff = rtl ? "'Noto Sans Arabic',sans-serif" : "'Plus Jakarta Sans',sans-serif";
 
-  // Load saved data on mount
   useEffect(() => {
     const savedLang = load("olfah-lang", null);
     const savedAge = load("olfah-age", null);
@@ -221,11 +326,13 @@ export default function Olfah() {
     const savedJDone = load("olfah-jdone", false);
     const savedPosts = load("olfah-posts", null);
     const savedChat = load("olfah-chat", []);
+    const savedLiked = load("olfah-liked", {});
     if (savedLang) setLang(savedLang);
     if (savedAge) { setAge(savedAge); setScr(S.HOME); }
     if (savedJournal) setJData(savedJournal);
     if (savedJDone) setJDone(true);
     if (savedChat.length) setChatHist(savedChat);
+    setLikedPosts(savedLiked);
     setPosts(savedPosts || DEFAULT_POSTS[savedLang || "ar"]);
   }, []);
 
@@ -234,33 +341,30 @@ export default function Olfah() {
     if (!savedPosts) setPosts(DEFAULT_POSTS[lang]);
   }, [lang]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading, esc]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading, esc, suggestions]);
 
   useEffect(() => {
     if (scr === S.SPLASH) {
-      const timer = setTimeout(() => setScr(S.ONBOARD), 2200);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setScr(S.ONBOARD), 2200);
+      return () => clearTimeout(t);
     }
   }, [scr]);
 
   useEffect(() => {
     if (scr === S.DOC) {
       setDocSt(0); setBooked(false);
-      const a = setTimeout(() => setDocSt(1), 2000);
-      const b = setTimeout(() => setDocSt(2), 3500);
-      const c = setTimeout(() => setDocSt(3), 5000);
+      const a = setTimeout(() => setDocSt(1), 1800);
+      const b = setTimeout(() => setDocSt(2), 3200);
+      const c = setTimeout(() => setDocSt(3), 4600);
       return () => { clearTimeout(a); clearTimeout(b); clearTimeout(c); };
     }
   }, [scr]);
 
-  const saveOnboard = (a, l) => {
-    store("olfah-age", a);
-    store("olfah-lang", l);
-    setScr(S.HOME);
-  };
+  const saveOnboard = (a, l) => { store("olfah-age", a); store("olfah-lang", l); setScr(S.HOME); };
 
   const send = async (text) => {
     if (!text.trim() || loading) return;
+    setSuggestions([]);
     const userMsg = { from: "user", text: text.trim(), ts: Date.now() };
     const newMsgs = [...msgs, userMsg];
     setMsgs(newMsgs); setInput(""); setLoading(true); setEsc(false);
@@ -269,55 +373,48 @@ export default function Olfah() {
     const final = [...newMsgs, aiMsg];
     setMsgs(final); setLoading(false);
     if (res.escalate) setTimeout(() => setEsc(true), 600);
+    else setTimeout(() => setSuggestions(getSuggestions(res.text, lang)), 400);
     const hist = [...chatHist, ...final.slice(-2)];
     setChatHist(hist);
     store("olfah-chat", hist.slice(-20));
   };
 
-  const saveJournal = () => {
-    setJDone(true);
-    store("olfah-journal", jData);
-    store("olfah-jdone", true);
-  };
+  const saveJournal = () => { setJDone(true); store("olfah-journal", jData); store("olfah-jdone", true); };
 
   const addPost = () => {
     if (!newPost.trim()) return;
     const p = { id: "u" + Date.now(), name: lang === "ar" ? "أنتِ" : "You", badge: age || "", time: lang === "ar" ? "الآن" : "Just now", text: newPost.trim(), likes: 0, replies: [] };
     const updated = [p, ...posts];
-    setPosts(updated); setNewPost("");
-    store("olfah-posts", updated);
+    setPosts(updated); setNewPost(""); store("olfah-posts", updated);
   };
 
   const addReply = (postId) => {
     const txt = replyText[postId];
     if (!txt?.trim()) return;
     const updated = posts.map(p => p.id === postId ? { ...p, replies: [...p.replies, { name: lang === "ar" ? "أنتِ" : "You", text: txt.trim(), time: lang === "ar" ? "الآن" : "Just now" }] } : p);
-    setPosts(updated);
-    setReplyText(r => ({ ...r, [postId]: "" }));
-    setOpenReply(null);
-    store("olfah-posts", updated);
+    setPosts(updated); setReplyText(r => ({ ...r, [postId]: "" })); setOpenReply(null); store("olfah-posts", updated);
   };
 
   const likePost = (postId) => {
+    if (likedPosts[postId]) return;
     const updated = posts.map(p => p.id === postId ? { ...p, likes: p.likes + 1 } : p);
-    setPosts(updated);
-    store("olfah-posts", updated);
+    const newLiked = { ...likedPosts, [postId]: true };
+    setPosts(updated); setLikedPosts(newLiked); store("olfah-posts", updated); store("olfah-liked", newLiked);
   };
 
-  const goChat = () => { setScr(S.CHAT); setMsgs([]); setEsc(false); setTimeout(() => inRef.current?.focus(), 300); };
+  const goChat = () => { setScr(S.CHAT); setMsgs([]); setSuggestions([]); setEsc(false); setTimeout(() => inRef.current?.focus(), 300); };
   const goHome = () => setScr(S.HOME);
 
-  // ─── SHARED COMPONENTS ───
   const Nav = ({ active }) => (
-    <div style={{ display: "flex", justifyContent: "space-around", padding: "10px 0 env(safe-area-inset-bottom,16px)", borderTop: "1px solid #e4ecf2", background: "white", position: "sticky", bottom: 0 }}>
+    <div style={{ display: "flex", justifyContent: "space-around", padding: "10px 0 env(safe-area-inset-bottom,16px)", borderTop: "1px solid #e4ecf2", background: "white", position: "sticky", bottom: 0, zIndex: 10 }}>
       {[
         { icon: IC.home, label: t.home, key: "home", action: goHome },
         { icon: IC.chat, label: t.chat, key: "chat", action: goChat },
         { icon: IC.users, label: t.community, key: "community", action: () => setScr(S.COMMUNITY) },
         { icon: IC.cal, label: t.journal, key: "journal", action: () => { setJStep(0); setScr(S.JOURNAL); } },
-        { icon: IC.user, label: t.profile, key: "profile", action: () => { } },
+        { icon: IC.user, label: t.profile, key: "profile", action: () => {} },
       ].map(tab => (
-        <button key={tab.key} onClick={tab.action} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 8px" }}>
+        <button key={tab.key} onClick={tab.action} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", padding: "4px 8px" }}>
           {tab.icon(active === tab.key ? P : "#99aab5")}
           <span style={{ fontSize: 10, fontWeight: active === tab.key ? 700 : 400, color: active === tab.key ? P : "#99aab5", fontFamily: ff }}>{tab.label}</span>
         </button>
@@ -327,7 +424,7 @@ export default function Olfah() {
 
   const Header = ({ title, onBack }) => (
     <div style={{ padding: "16px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", gap: 12 }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>{IC.back}</button>}
+      {onBack && <button onClick={onBack} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>}
       <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", fontFamily: ff }}>{title}</div>
     </div>
   );
@@ -336,9 +433,10 @@ export default function Olfah() {
     <button onClick={onClick} disabled={disabled} style={{
       padding: "14px 24px", borderRadius: 14, border: variant === "outline" ? `2px solid ${P}` : "none",
       background: disabled ? "#d0dce5" : variant === "primary" ? PG : "white",
-      color: variant === "primary" ? "white" : P, fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer",
-      width: full ? "100%" : "auto", fontFamily: ff, boxShadow: variant === "primary" && !disabled ? "0 4px 16px rgba(91,164,207,.3)" : "none",
-      transition: "all .2s", ...s
+      color: variant === "primary" ? "white" : P, fontSize: 14, fontWeight: 600,
+      cursor: disabled ? "default" : "pointer", width: full ? "100%" : "auto", fontFamily: ff,
+      boxShadow: variant === "primary" && !disabled ? "0 4px 16px rgba(91,164,207,.3)" : "none",
+      transition: "all .2s", ...s,
     }}>{children}</button>
   );
 
@@ -359,26 +457,23 @@ export default function Olfah() {
 
   // ─── ONBOARDING ───
   if (scr === S.ONBOARD) return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", padding: "40px 24px 30px", direction: dir, fontFamily: ff }}>
+    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", padding: "40px 24px 30px", direction: dir, fontFamily: ff }}>
       <style>{css}</style>
       <div style={{ fontSize: 13, color: P, fontWeight: 600, marginBottom: 6 }}>{t.onboardTitle}</div>
       <div style={{ fontSize: 26, fontWeight: 700, color: "#1e2d3d", lineHeight: 1.4, marginBottom: 6 }}>{t.onboardSub} 💛</div>
       <div style={{ fontSize: 14, color: "#7a8d9e", marginBottom: 30 }}>{t.onboardHelp}</div>
-
       <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.langLabel}</div>
       <div style={{ display: "flex", gap: 10, marginBottom: 28 }}>
         {[{ l: "ar", label: "العربية" }, { l: "en", label: "English" }].map(({ l, label }) => (
-          <button key={l} onClick={() => setLang(l)} style={{ padding: "10px 22px", borderRadius: 22, border: lang === l ? `2px solid ${P}` : "2px solid #d0dce5", background: lang === l ? PL : "white", color: lang === l ? PD : "#3d5a73", fontSize: 13, fontWeight: lang === l ? 600 : 400, cursor: "pointer", fontFamily: ff }}>{label}</button>
+          <button key={l} onClick={() => setLang(l)} style={{ padding: "10px 22px", borderRadius: 22, border: lang === l ? `2px solid ${P}` : "2px solid #d0dce5", background: lang === l ? PL : "white", color: lang === l ? PD : "#3d5a73", fontSize: 13, fontWeight: lang === l ? 600 : 400, fontFamily: ff }}>{label}</button>
         ))}
       </div>
-
       <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.ageLabel}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
         {t.ages.map(a => (
-          <button key={a} onClick={() => setAge(a)} style={{ padding: "10px 18px", borderRadius: 22, border: age === a ? `2px solid ${P}` : "2px solid #d0dce5", background: age === a ? PL : "white", color: age === a ? PD : "#3d5a73", fontSize: 13, fontWeight: age === a ? 600 : 400, cursor: "pointer", fontFamily: ff, transition: "all .15s" }}>{a}</button>
+          <button key={a} onClick={() => setAge(a)} style={{ padding: "10px 18px", borderRadius: 22, border: age === a ? `2px solid ${P}` : "2px solid #d0dce5", background: age === a ? PL : "white", color: age === a ? PD : "#3d5a73", fontSize: 13, fontWeight: age === a ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>{a}</button>
         ))}
       </div>
-
       <div style={{ flex: 1 }} />
       <Btn full onClick={() => age && saveOnboard(age, lang)} disabled={!age}>{t.start}</Btn>
     </div>
@@ -386,14 +481,14 @@ export default function Olfah() {
 
   // ─── HOME ───
   if (scr === S.HOME) return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
       <style>{css}</style>
       <div style={{ padding: "24px 22px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontSize: 14, color: "#7a8d9e" }}>{t.hi} 👋</div>
+          <div style={{ fontSize: 14, color: "#7a8d9e" }}>{getGreeting(lang)} 👋</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: "#1e2d3d", marginTop: 4 }}>{t.howHelp}</div>
         </div>
-        <button onClick={() => { const nl = lang === "ar" ? "en" : "ar"; setLang(nl); store("olfah-lang", nl); }} style={{ padding: "5px 12px", borderRadius: 16, border: `1.5px solid ${P}`, background: "white", color: P, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{lang === "ar" ? "EN" : "ع"}</button>
+        <button onClick={() => { const nl = lang === "ar" ? "en" : "ar"; setLang(nl); store("olfah-lang", nl); }} style={{ padding: "5px 12px", borderRadius: 16, border: `1.5px solid ${P}`, background: "white", color: P, fontSize: 11, fontWeight: 600 }}>{lang === "ar" ? "EN" : "ع"}</button>
       </div>
 
       {!jDone && (
@@ -407,13 +502,14 @@ export default function Olfah() {
         </div>
       )}
 
-      <div onClick={goChat} className="fade-up" style={{ margin: "0 18px 14px", background: PG, borderRadius: 20, padding: "22px", color: "white", position: "relative", overflow: "hidden", cursor: "pointer", boxShadow: "0 8px 30px rgba(91,164,207,.35)", animationDelay: ".1s" }}>
+      <div onClick={goChat} className="fade-up" style={{ margin: "0 18px 14px", background: PG, borderRadius: 20, padding: "22px", color: "white", position: "relative", overflow: "hidden", cursor: "pointer", boxShadow: "0 8px 30px rgba(91,164,207,.35)", animationDelay: ".05s" }}>
         <div style={{ position: "absolute", top: -30, [rtl ? "left" : "right"]: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,.1)" }} />
+        <div style={{ position: "absolute", bottom: -20, [rtl ? "right" : "left"]: 60, width: 80, height: 80, borderRadius: "50%", background: "rgba(255,255,255,.06)" }} />
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t.askTitle} ✦</div>
-        <div style={{ fontSize: 12, opacity: .9, marginBottom: 14 }}>{t.askSub}</div>
+        <div style={{ fontSize: 12, opacity: .85, marginBottom: 14 }}>{t.askSub}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {[[t.s1L, t.s1], [t.s2L, t.s2], [t.s3L, t.s3], [t.s4L, t.s4]].map(([l, q]) => (
-            <button key={l} onClick={e => { e.stopPropagation(); setScr(S.CHAT); setMsgs([]); setEsc(false); setTimeout(() => send(q), 300); }} style={{ padding: "7px 13px", borderRadius: 12, border: "1.5px solid rgba(255,255,255,.35)", background: "rgba(255,255,255,.13)", color: "white", fontSize: 10, fontWeight: 500, cursor: "pointer", fontFamily: ff }}>{l}</button>
+            <button key={l} onClick={e => { e.stopPropagation(); setScr(S.CHAT); setMsgs([]); setEsc(false); setTimeout(() => send(q), 300); }} style={{ padding: "7px 13px", borderRadius: 12, border: "1.5px solid rgba(255,255,255,.35)", background: "rgba(255,255,255,.13)", color: "white", fontSize: 10, fontWeight: 500, fontFamily: ff }}>{l}</button>
           ))}
         </div>
       </div>
@@ -425,9 +521,9 @@ export default function Olfah() {
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#E3F2FD,#BBDEFB)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.steth("#1565C0", 20)}</div>, label: t.findDoc, sub: t.docSub, action: () => setScr(S.DOC) },
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#FCE4EC,#F8BBD0)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.users("#C2185B")}</div>, label: t.comLabel, sub: t.comSub, action: () => setScr(S.COMMUNITY) },
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#E8F5E9,#C8E6C9)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.cal("#2E7D32")}</div>, label: t.trackerLabel, sub: t.trackerSub, action: () => { setJStep(0); setScr(S.JOURNAL); } },
-            { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#FFF3E0,#FFE0B2)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.pin("#E65100")}</div>, label: t.nearLabel, sub: t.nearSub },
+            { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#FFF3E0,#FFE0B2)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.pin("#E65100")}</div>, label: t.nearLabel, sub: t.nearSub, action: () => {} },
           ].map(item => (
-            <button key={item.label} onClick={item.action || (() => { })} style={{ background: "white", borderRadius: 14, padding: "14px", border: "1px solid #dde8f0", textAlign: rtl ? "right" : "left", cursor: "pointer", fontFamily: ff }}>
+            <button key={item.label} onClick={item.action} style={{ background: "white", borderRadius: 14, padding: "14px", border: "1px solid #dde8f0", textAlign: rtl ? "right" : "left", fontFamily: ff }}>
               <div style={{ marginBottom: 6 }}>{item.icon()}</div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#1e2d3d" }}>{item.label}</div>
               <div style={{ fontSize: 10, color: "#7a8d9e", marginTop: 2 }}>{item.sub}</div>
@@ -447,7 +543,7 @@ export default function Olfah() {
             <div style={{ display: "flex", gap: 6 }}>
               {[
                 { v: jData.feeds, l: t.feeds }, { v: jData.diapers, l: t.diapers }, { v: jData.sleep, l: t.sleepH },
-                { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "—", l: t.yourMood, isEmoji: true }
+                { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "—", l: t.yourMood },
               ].map((x, i) => (
                 <div key={i} style={{ flex: 1, background: PL, borderRadius: 10, padding: "8px 4px", textAlign: "center" }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: PD }}>{x.v}</div>
@@ -472,20 +568,23 @@ export default function Olfah() {
 
   // ─── CHAT ───
   if (scr === S.CHAT) return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
       <style>{css}</style>
-      <div style={{ padding: "16px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", gap: 12, direction: "ltr", position: "sticky", top: 0, zIndex: 10 }}>
-        <button onClick={goHome} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>{IC.back}</button>
-        <div style={{ width: 36, height: 36, borderRadius: 12, background: PG, display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.star}</div>
-        <div>
+      <div style={{ padding: "14px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", gap: 12, direction: "ltr", position: "sticky", top: 0, zIndex: 10 }}>
+        <button onClick={goHome} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>
+        <div style={{ width: 36, height: 36, borderRadius: 12, background: PG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{IC.star}</div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#1e2d3d", fontFamily: ff }}>{t.aiName}</div>
-          <div style={{ fontSize: 10, color: OK, fontFamily: ff }}>● {t.online}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
+            <div className="online-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: OK }} />
+            <span style={{ fontSize: 10, color: OK, fontFamily: ff }}>{t.online}</span>
+          </div>
         </div>
       </div>
 
-      <div style={{ flex: 1, padding: "14px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ flex: 1, padding: "14px 14px 6px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
         <div className="fade-up" style={{ background: "white", borderRadius: rtl ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "12px 14px", maxWidth: "85%", border: "1px solid #e4ecf2", alignSelf: rtl ? "flex-end" : "flex-start" }}>
-          <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.6 }}>{t.aiWelcome}</div>
+          <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.65 }}>{t.aiWelcome}</div>
         </div>
 
         {msgs.map((m, i) => (
@@ -494,16 +593,29 @@ export default function Olfah() {
             borderRadius: m.from === "user" ? (rtl ? "4px 16px 16px 16px" : "16px 4px 16px 16px") : (rtl ? "16px 4px 16px 16px" : "4px 16px 16px 16px"),
             padding: "12px 14px", maxWidth: "85%",
             alignSelf: m.from === "user" ? (rtl ? "flex-start" : "flex-end") : (rtl ? "flex-end" : "flex-start"),
-            color: m.from === "user" ? "white" : "#3d5a73", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap",
+            color: m.from === "user" ? "white" : "#3d5a73", fontSize: 13, lineHeight: 1.65, whiteSpace: "pre-wrap",
             border: m.from === "user" ? "none" : "1px solid #e4ecf2",
-            boxShadow: m.from === "user" ? "0 2px 8px rgba(91,164,207,.3)" : "none",
+            boxShadow: m.from === "user" ? "0 2px 10px rgba(91,164,207,.25)" : "none",
           }}>{m.text}</div>
         ))}
 
         {loading && (
-          <div style={{ background: "white", borderRadius: "4px 16px 16px 16px", padding: "12px 14px", maxWidth: "45%", border: "1px solid #e4ecf2", display: "flex", gap: 8, alignItems: "center", alignSelf: rtl ? "flex-end" : "flex-start" }}>
-            <span style={{ fontSize: 12, color: "#7a8d9e" }}>{t.thinking}</span>
-            {[0, 1, 2].map(d => <div key={d} className="dot-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: P, animationDelay: `${d * .2}s` }} />)}
+          <div style={{ background: "white", borderRadius: rtl ? "16px 4px 16px 16px" : "4px 16px 16px 16px", padding: "14px 16px", maxWidth: "42%", border: "1px solid #e4ecf2", display: "flex", alignItems: "center", gap: 10, alignSelf: rtl ? "flex-end" : "flex-start" }}>
+            <span style={{ fontSize: 12, color: "#99aab5", fontFamily: ff }}>{t.thinking}</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[0, 1, 2].map(d => <div key={d} style={{ width: 5, height: 5, borderRadius: "50%", background: P, animation: `typingDot 1.2s ease ${d * 0.18}s infinite` }} />)}
+            </div>
+          </div>
+        )}
+
+        {suggestions.length > 0 && !loading && msgs.length > 0 && msgs[msgs.length - 1].from === "ai" && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 2, alignSelf: rtl ? "flex-end" : "flex-start", maxWidth: "90%" }}>
+            {suggestions.map((s, i) => (
+              <button key={i} className="chip-in" onClick={() => { setSuggestions([]); send(s); }}
+                style={{ padding: "8px 14px", borderRadius: 20, border: `1px solid ${P}44`, background: "white", color: PD, fontSize: 12, fontFamily: ff, animationDelay: `${i * 0.06}s` }}>
+                {s}
+              </button>
+            ))}
           </div>
         )}
 
@@ -517,44 +629,59 @@ export default function Olfah() {
       </div>
 
       <div style={{ padding: "10px 14px env(safe-area-inset-bottom,16px)", background: "white", borderTop: "1px solid #e4ecf2", display: "flex", gap: 8, alignItems: "center", direction: "ltr", position: "sticky", bottom: 0 }}>
-        <input ref={inRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !loading) send(input); }}
+        <input ref={inRef} value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !loading) send(input); }}
           placeholder={t.typePH} disabled={loading}
           style={{ flex: 1, padding: "12px 18px", borderRadius: 24, background: PL, border: "none", outline: "none", fontSize: 14, color: "#1e2d3d", fontFamily: ff, textAlign: rtl ? "right" : "left", direction: dir }} />
         <button onClick={() => !loading && send(input)} disabled={loading || !input.trim()}
-          style={{ width: 42, height: 42, borderRadius: "50%", background: input.trim() && !loading ? PG : "#d0dce5", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: input.trim() && !loading ? "pointer" : "default", transition: "background .2s" }}>{IC.send}</button>
+          style={{ width: 42, height: 42, borderRadius: "50%", background: input.trim() && !loading ? PG : "#d0dce5", border: "none", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .2s" }}>{IC.send}</button>
       </div>
     </div>
   );
 
   // ─── DOCTOR ───
   if (scr === S.DOC) return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
       <style>{css}</style>
       <Header title={t.docTitle} onBack={goHome} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 28px" }}>
         {docSt < 3 && (
-          <div className="fade-up" style={{ textAlign: "center" }}>
-            {docSt === 0 && <><div style={{ width: 80, height: 80, borderRadius: "50%", border: `4px solid #d0dce5`, borderTopColor: P, animation: "spin 1s linear infinite", margin: "0 auto 20px" }} /><div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.finding}</div><div style={{ fontSize: 12, color: "#7a8d9e", marginTop: 8 }}>{t.sharing}</div></>}
-            {docSt === 1 && <><div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", boxShadow: "0 8px 24px rgba(76,175,80,.3)" }}>{IC.steth("white", 36)}</div><div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.drName}</div><div style={{ fontSize: 13, color: "#7a8d9e", marginTop: 4 }}>{t.drSpec}</div><div style={{ fontSize: 12, color: OK, marginTop: 8, fontWeight: 500 }}>● {t.drAvail}</div></>}
-            {docSt === 2 && <><div style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>{IC.steth("white", 36)}</div><div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.drConnected}</div><div style={{ fontSize: 12, color: OK, marginTop: 4, fontWeight: 500 }}>{t.drHas}</div></>}
+          <div className="fade-up" key={docSt} style={{ textAlign: "center" }}>
+            {docSt === 0 && <>
+              <div style={{ width: 72, height: 72, borderRadius: "50%", border: `3px solid #e4ecf2`, borderTopColor: P, animation: "spin 1s linear infinite", margin: "0 auto 20px" }} />
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.finding}</div>
+              <div style={{ fontSize: 12, color: "#7a8d9e", marginTop: 8 }}>{t.sharing}</div>
+            </>}
+            {docSt === 1 && <>
+              <div style={{ width: 72, height: 72, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", boxShadow: "0 8px 24px rgba(76,175,80,.3)" }}>{IC.steth("white", 32)}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.drName}</div>
+              <div style={{ fontSize: 13, color: "#7a8d9e", marginTop: 4 }}>{t.drSpec}</div>
+              <div style={{ fontSize: 12, color: OK, marginTop: 8, fontWeight: 500 }}>● {t.drAvail}</div>
+            </>}
+            {docSt === 2 && <>
+              <div style={{ width: 72, height: 72, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>{IC.steth("white", 32)}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#1e2d3d" }}>{t.drConnected} ✓</div>
+              <div style={{ fontSize: 12, color: OK, marginTop: 6, fontWeight: 500 }}>{t.drHas}</div>
+            </>}
           </div>
         )}
         {docSt === 3 && (
-          <div className="fade-up" style={{ width: "100%", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="fade-up" style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start", direction: "ltr" }}>
               <div style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.steth("white", 18)}</div>
               <div style={{ background: "white", borderRadius: "4px 16px 16px 16px", padding: "14px", border: "1px solid #e4ecf2", flex: 1 }}>
-                <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.6, direction: dir }}>{t.drMsg}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#2E7D32", marginBottom: 6 }}>{t.drName} · {t.drSpec}</div>
+                <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.65, direction: dir }}>{t.drMsg}</div>
               </div>
             </div>
             <div style={{ background: "#E8F5E9", borderRadius: 12, padding: "10px 14px", border: "1px solid #C8E6C9", textAlign: "center" }}>
               <div style={{ fontSize: 11, color: "#2E7D32" }}>{t.drSees}</div>
             </div>
             {!booked ? (
-              <Btn full onClick={() => setBooked(true)} style={{ background: `linear-gradient(135deg,${OK},#66BB6A)` }}>{t.bookAppt}</Btn>
+              <Btn full onClick={() => setBooked(true)} style={{ background: `linear-gradient(135deg,${OK},#66BB6A)`, boxShadow: "0 4px 16px rgba(76,175,80,.3)" }}>{t.bookAppt}</Btn>
             ) : (
-              <div className="fade-up" style={{ background: "#E8F5E9", borderRadius: 14, padding: "16px", textAlign: "center", border: "1px solid #C8E6C9" }}>
-                <div style={{ fontSize: 24, marginBottom: 6 }}>✓</div>
+              <div className="fade-up" style={{ background: "#E8F5E9", borderRadius: 14, padding: "18px", textAlign: "center", border: "1px solid #C8E6C9" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>✓</div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#2E7D32" }}>{t.bookConfirm}</div>
                 <div style={{ fontSize: 12, color: "#4CAF50", marginTop: 4 }}>{t.bookSub}</div>
               </div>
@@ -565,9 +692,9 @@ export default function Olfah() {
       {docSt < 3 && <div style={{ padding: "20px 28px 36px", textAlign: "center" }}><div style={{ fontSize: 11, color: "#7a8d9e" }}>{t.avgTime}</div></div>}
       {docSt === 3 && (
         <div style={{ padding: "10px 14px env(safe-area-inset-bottom,16px)", background: "white", borderTop: "1px solid #e4ecf2", display: "flex", gap: 8, direction: "ltr" }}>
-          <button style={{ width: 40, height: 40, borderRadius: "50%", background: PL, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.cam(PD)}</button>
+          <button style={{ width: 40, height: 40, borderRadius: "50%", background: PL, border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.cam(PD)}</button>
           <div style={{ flex: 1, padding: "12px 16px", borderRadius: 24, background: PL, fontSize: 13, color: "#99aab5", textAlign: rtl ? "right" : "left", fontFamily: ff }}>{t.replyDoc}</div>
-          <button style={{ width: 40, height: 40, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.vid}</button>
+          <button style={{ width: 40, height: 40, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, border: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.vid}</button>
         </div>
       )}
     </div>
@@ -575,65 +702,70 @@ export default function Olfah() {
 
   // ─── COMMUNITY ───
   if (scr === S.COMMUNITY) return (
-    <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
       <style>{css}</style>
       <Header title={t.comTitle} onBack={goHome} />
       <div style={{ padding: "12px 16px 0" }}>
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 10 }}>
           {t.comTabs.map((tab, i) => (
-            <button key={tab} style={{ padding: "8px 16px", borderRadius: 20, whiteSpace: "nowrap", border: i === 0 ? "none" : "1px solid #d0dce5", background: i === 0 ? P : "white", color: i === 0 ? "white" : "#3d5a73", fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: ff }}>{tab}</button>
+            <button key={tab} style={{ padding: "8px 16px", borderRadius: 20, whiteSpace: "nowrap", border: i === 0 ? "none" : "1px solid #d0dce5", background: i === 0 ? P : "white", color: i === 0 ? "white" : "#3d5a73", fontSize: 11, fontWeight: i === 0 ? 600 : 400, fontFamily: ff }}>{tab}</button>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: "8px 16px 12px" }}>
+      <div style={{ padding: "4px 16px 12px" }}>
         <div style={{ background: "white", borderRadius: 14, padding: "12px", border: "1px solid #dde8f0", display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: PL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>{IC.user(PD)}</div>
           <textarea value={newPost} onChange={e => setNewPost(e.target.value)} placeholder={t.writePost} rows={2}
-            style={{ flex: 1, border: "none", outline: "none", fontSize: 13, resize: "none", background: "transparent", fontFamily: ff, direction: dir, lineHeight: 1.5, color: "#1e2d3d" }} />
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 13, resize: "none", background: "transparent", fontFamily: ff, direction: dir, lineHeight: 1.55, color: "#1e2d3d" }} />
           {newPost.trim() && <Btn onClick={addPost} style={{ padding: "8px 16px", fontSize: 12 }}>{t.postBtn}</Btn>}
         </div>
       </div>
 
       <div style={{ flex: 1, padding: "0 16px", overflowY: "auto" }}>
-        {posts.map(post => (
-          <div key={post.id} className="fade-up" style={{ background: "white", borderRadius: 14, padding: "14px", marginBottom: 8, border: "1px solid #dde8f0" }}>
+        {posts.map((post, pi) => (
+          <div key={post.id} className="fade-up" style={{ background: "white", borderRadius: 14, padding: "14px", marginBottom: 8, border: "1px solid #dde8f0", animationDelay: `${pi * 0.04}s` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: PL, display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.user(PD)}</div>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: `linear-gradient(135deg,${PL},${P}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: PD }}>
+                {post.name.charAt(0)}
+              </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#1e2d3d", fontFamily: ff }}>{post.name}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-                  <span style={{ fontSize: 9, background: PL, color: PD, padding: "2px 8px", borderRadius: 10, fontWeight: 500, whiteSpace: "nowrap" }}>{post.badge}</span>
-                  <span style={{ fontSize: 9, color: "#99aab5" }}>·</span>
-                  <span style={{ fontSize: 9, color: "#99aab5", whiteSpace: "nowrap" }}>{post.time}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                  {post.badge && <span style={{ fontSize: 9, background: PL, color: PD, padding: "2px 8px", borderRadius: 10, fontWeight: 500, whiteSpace: "nowrap" }}>{post.badge}</span>}
+                  <span style={{ fontSize: 9, color: "#b0bec5" }}>{post.time}</span>
                 </div>
               </div>
             </div>
-            <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.6, marginBottom: 10 }}>{post.text}</div>
+            <div style={{ fontSize: 13, color: "#2d3f4f", lineHeight: 1.65, marginBottom: 12 }}>{post.text}</div>
             <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-              <button onClick={() => likePost(post.id)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#7a8d9e", fontFamily: ff }}>{IC.heart("#7a8d9e")} {post.likes} {t.like}</button>
-              <button onClick={() => setOpenReply(openReply === post.id ? null : post.id)} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#7a8d9e", fontFamily: ff }}>{IC.chat("#7a8d9e")} {post.replies.length} {t.replies}</button>
+              <button onClick={() => likePost(post.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", fontSize: 11, color: likedPosts[post.id] ? WARN : "#7a8d9e", fontFamily: ff, fontWeight: likedPosts[post.id] ? 600 : 400 }}>
+                {IC.heart(likedPosts[post.id] ? WARN : "#7a8d9e", likedPosts[post.id])} {post.likes} {t.like}
+              </button>
+              <button onClick={() => setOpenReply(openReply === post.id ? null : post.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", fontSize: 11, color: "#7a8d9e", fontFamily: ff }}>
+                {IC.chat("#7a8d9e")} {post.replies.length} {t.replies}
+              </button>
             </div>
             {post.replies.length > 0 && (
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f0f4f8" }}>
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f0f4f8", display: "flex", flexDirection: "column", gap: 8 }}>
                 {post.replies.map((r, ri) => (
-                  <div key={ri} style={{ display: "flex", gap: 8, marginBottom: 8, paddingLeft: rtl ? 0 : 20, paddingRight: rtl ? 20 : 0 }}>
-                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: PL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{IC.user(PD)}</div>
+                  <div key={ri} style={{ display: "flex", gap: 8, paddingLeft: rtl ? 0 : 16, paddingRight: rtl ? 16 : 0 }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: PL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 10, fontWeight: 700, color: PD }}>{r.name.charAt(0)}</div>
                     <div>
                       <span style={{ fontSize: 11, fontWeight: 600, color: "#1e2d3d" }}>{r.name}</span>
-                      <span style={{ fontSize: 9, color: "#99aab5", marginLeft: 6, marginRight: 6 }}>{r.time}</span>
-                      <div style={{ fontSize: 12, color: "#3d5a73", marginTop: 2, lineHeight: 1.5 }}>{r.text}</div>
+                      <span style={{ fontSize: 9, color: "#b0bec5", marginLeft: 6, marginRight: 6 }}>{r.time}</span>
+                      <div style={{ fontSize: 12, color: "#3d5a73", marginTop: 2, lineHeight: 1.55 }}>{r.text}</div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
             {openReply === post.id && (
-              <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
                 <input value={replyText[post.id] || ""} onChange={e => setReplyText(r => ({ ...r, [post.id]: e.target.value }))}
                   onKeyDown={e => { if (e.key === "Enter") addReply(post.id); }}
                   placeholder={t.replyPH}
-                  style={{ flex: 1, padding: "10px 14px", borderRadius: 20, border: "1px solid #d0dce5", outline: "none", fontSize: 12, fontFamily: ff, direction: dir, background: PL }} />
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 20, border: "1px solid #d0dce5", outline: "none", fontSize: 12, fontFamily: ff, direction: dir, background: PL, color: "#1e2d3d" }} />
                 <Btn onClick={() => addReply(post.id)} style={{ padding: "8px 14px", fontSize: 11 }}>{t.replyBtn}</Btn>
               </div>
             )}
@@ -649,13 +781,13 @@ export default function Olfah() {
     const steps = 5, prog = ((jStep + 1) / steps) * 100;
 
     if (jDone && jStep === 0) return (
-      <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 28px", direction: dir, fontFamily: ff }}>
+      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 28px", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
         <div className="fade-up" style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "white", marginBottom: 20, boxShadow: "0 8px 24px rgba(76,175,80,.3)" }}>✓</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1e2d3d", marginBottom: 8 }}>{t.jSaved} ✨</div>
-        <div style={{ fontSize: 13, color: OK, fontWeight: 600, marginBottom: 16 }}>🔥 {t.jStreak}</div>
-        <div style={{ background: PL, borderRadius: 14, padding: "14px 18px", marginBottom: 24, border: `1px solid ${P}33`, width: "100%" }}>
-          <div style={{ fontSize: 12, color: PD, lineHeight: 1.5, textAlign: "center" }}>💡 {t.jInsight}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1e2d3d", marginBottom: 6 }}>{t.jSaved}</div>
+        <div style={{ fontSize: 13, color: OK, fontWeight: 600, marginBottom: 20 }}>{t.jStreak}</div>
+        <div style={{ background: PL, borderRadius: 14, padding: "16px 18px", marginBottom: 24, border: `1px solid ${P}33`, width: "100%" }}>
+          <div style={{ fontSize: 13, color: PD, lineHeight: 1.6, textAlign: "center" }}>💡 {computeInsight(jData, lang)}</div>
         </div>
         <div style={{ width: "100%", display: "flex", gap: 8, marginBottom: 30 }}>
           {[
@@ -675,22 +807,26 @@ export default function Olfah() {
     );
 
     return (
-      <div style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
         <div style={{ padding: "16px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button onClick={goHome} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>{IC.back}</button>
+          <button onClick={goHome} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#1e2d3d" }}>{t.jTitle}</div>
-          <button onClick={goHome} style={{ background: "none", border: "none", fontSize: 12, cursor: "pointer", color: "#7a8d9e", fontFamily: ff }}>{t.jSkip}</button>
+          <button onClick={goHome} style={{ background: "none", border: "none", fontSize: 12, color: "#99aab5", fontFamily: ff }}>{t.jSkip}</button>
         </div>
 
-        <div style={{ padding: "12px 22px 0" }}><div style={{ height: 4, borderRadius: 2, background: "#e4ecf2" }}><div style={{ height: 4, borderRadius: 2, background: PG, width: `${prog}%`, transition: "width .4s" }} /></div></div>
+        <div style={{ padding: "12px 22px 0" }}>
+          <div style={{ height: 4, borderRadius: 2, background: "#e4ecf2" }}>
+            <div style={{ height: 4, borderRadius: 2, background: PG, width: `${prog}%`, transition: "width .35s cubic-bezier(0.25,0.46,0.45,0.94)" }} />
+          </div>
+        </div>
 
-        <div style={{ flex: 1, padding: "24px 24px" }}>
+        <div style={{ flex: 1, padding: "24px" }}>
           {jStep === 0 && <div className="fade-up">
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 20 }}>{t.jMood}</div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
               {t.jMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, mood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 4px", borderRadius: 14, cursor: "pointer", border: jData.mood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.mood === i ? PL : "white", transform: jData.mood === i ? "scale(1.08)" : "scale(1)", transition: "all .2s" }}>
+                <button key={i} onClick={() => setJData(d => ({ ...d, mood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 4px", borderRadius: 14, border: jData.mood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.mood === i ? PL : "white", transform: jData.mood === i ? "scale(1.08)" : "scale(1)", transition: "all .18s" }}>
                   <span style={{ fontSize: 30 }}>{e}</span>
                   <span style={{ fontSize: 10, color: jData.mood === i ? PD : "#7a8d9e", fontWeight: 500, fontFamily: ff }}>{t.jMoodL[i]}</span>
                 </button>
@@ -702,13 +838,13 @@ export default function Olfah() {
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jSleep}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
               <input type="range" min="0" max="12" step=".5" value={jData.sleep} onChange={e => setJData(d => ({ ...d, sleep: +e.target.value }))} style={{ flex: 1, accentColor: P, height: 6 }} />
-              <div style={{ fontSize: 28, fontWeight: 700, color: PD, minWidth: 50, textAlign: "center" }}>{jData.sleep}<span style={{ fontSize: 11, fontWeight: 400, color: "#7a8d9e" }}> {t.jSleepU}</span></div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: PD, minWidth: 54, textAlign: "center" }}>{jData.sleep}<span style={{ fontSize: 11, fontWeight: 400, color: "#7a8d9e" }}> {t.jSleepU}</span></div>
             </div>
-            <div style={{ height: 1, background: "#e4ecf2", margin: "20px 0" }} />
+            <div style={{ height: 1, background: "#e4ecf2", margin: "22px 0" }} />
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jBabyMood}</div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
               {t.jBMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, bmood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 14, cursor: "pointer", border: jData.bmood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.bmood === i ? PL : "white", transform: jData.bmood === i ? "scale(1.08)" : "scale(1)", transition: "all .2s" }}>
+                <button key={i} onClick={() => setJData(d => ({ ...d, bmood: i }))} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 14, border: jData.bmood === i ? `2px solid ${P}` : "2px solid #e4ecf2", background: jData.bmood === i ? PL : "white", transform: jData.bmood === i ? "scale(1.08)" : "scale(1)", transition: "all .18s" }}>
                   <span style={{ fontSize: 26 }}>{e}</span>
                   <span style={{ fontSize: 9, color: jData.bmood === i ? PD : "#7a8d9e", fontWeight: 500, fontFamily: ff }}>{t.jBMoodL[i]}</span>
                 </button>
@@ -719,16 +855,16 @@ export default function Olfah() {
           {jStep === 2 && <div className="fade-up">
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jFeeds}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-              <button onClick={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, cursor: "pointer", color: "#3d5a73" }}>−</button>
+              <button onClick={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>−</button>
               <div style={{ flex: 1, textAlign: "center" }}><span style={{ fontSize: 40, fontWeight: 700, color: PD }}>{jData.feeds}</span><span style={{ fontSize: 13, color: "#7a8d9e", marginLeft: 4 }}>{t.jFeedsU}</span></div>
-              <button onClick={() => setJData(d => ({ ...d, feeds: d.feeds + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, cursor: "pointer", color: "#3d5a73" }}>+</button>
+              <button onClick={() => setJData(d => ({ ...d, feeds: d.feeds + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>+</button>
             </div>
-            <div style={{ height: 1, background: "#e4ecf2", margin: "20px 0" }} />
+            <div style={{ height: 1, background: "#e4ecf2", margin: "22px 0" }} />
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jDiapers}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <button onClick={() => setJData(d => ({ ...d, diapers: Math.max(0, d.diapers - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, cursor: "pointer", color: "#3d5a73" }}>−</button>
+              <button onClick={() => setJData(d => ({ ...d, diapers: Math.max(0, d.diapers - 1) }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>−</button>
               <div style={{ flex: 1, textAlign: "center" }}><span style={{ fontSize: 40, fontWeight: 700, color: PD }}>{jData.diapers}</span><span style={{ fontSize: 13, color: "#7a8d9e", marginLeft: 4 }}>{t.jDiapersU}</span></div>
-              <button onClick={() => setJData(d => ({ ...d, diapers: d.diapers + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, cursor: "pointer", color: "#3d5a73" }}>+</button>
+              <button onClick={() => setJData(d => ({ ...d, diapers: d.diapers + 1 }))} style={{ width: 48, height: 48, borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 22, color: "#3d5a73" }}>+</button>
             </div>
           </div>}
 
@@ -737,7 +873,7 @@ export default function Olfah() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {t.jItems.map((item, i) => {
                 const on = jData.checks.includes(i);
-                return <button key={i} onClick={() => setJData(d => ({ ...d, checks: on ? d.checks.filter(c => c !== i) : [...d.checks, i] }))} style={{ padding: "10px 18px", borderRadius: 22, cursor: "pointer", fontFamily: ff, border: on ? `2px solid ${P}` : "2px solid #d0dce5", background: on ? PL : "white", color: on ? PD : "#3d5a73", fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>{on ? "✓ " : ""}{item}</button>;
+                return <button key={i} onClick={() => setJData(d => ({ ...d, checks: on ? d.checks.filter(c => c !== i) : [...d.checks, i] }))} style={{ padding: "10px 18px", borderRadius: 22, fontFamily: ff, border: on ? `2px solid ${P}` : "2px solid #d0dce5", background: on ? PL : "white", color: on ? PD : "#3d5a73", fontSize: 12, fontWeight: on ? 600 : 400, transition: "all .15s" }}>{on ? "✓ " : ""}{item}</button>;
               })}
             </div>
           </div>}
@@ -745,7 +881,7 @@ export default function Olfah() {
           {jStep === 4 && <div className="fade-up">
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1e2d3d", marginBottom: 16 }}>{t.jNotes}</div>
             <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))} placeholder={t.jNotesPH}
-              style={{ width: "100%", height: 160, padding: "16px", borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.6, color: "#1e2d3d" }} />
+              style={{ width: "100%", height: 160, padding: "16px", borderRadius: 14, border: "1px solid #d0dce5", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.65, color: "#1e2d3d" }} />
           </div>}
         </div>
 

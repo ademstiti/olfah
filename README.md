@@ -18,7 +18,6 @@
 ```bash
 npm run dev
 ```
-Opens at http://localhost:3000
 
 ## Production build & start
 
@@ -26,10 +25,3 @@ Opens at http://localhost:3000
 npm run build
 npm start
 ```
-
-## Deploy to Railway / Render / Fly.io
-
-- Set environment variable: `ANTHROPIC_API_KEY=sk-ant-...`
-- Build command: `npm run build`
-- Start command: `npm start`
-- The server serves the built frontend and proxies AI requests.
