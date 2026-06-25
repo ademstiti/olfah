@@ -497,9 +497,8 @@ export default function Olfah() {
   if (scr === S.SPLASH) return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#A7D5EC,#5BA4CF 40%,#3D8AB8)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: ff }}>
       <style>{css}</style>
-      <div className="fade-up" style={{ position: "relative", width: 88, height: 88, borderRadius: 22, background: "rgba(255,255,255,.95)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 30px rgba(0,0,0,.12)", marginBottom: 20 }}>
-        {IC.heart(PD)}
-        <div style={{ position: "absolute" }}>{IC.steth(PD, 32)}</div>
+      <div className="fade-up" style={{ marginBottom: 20 }}>
+        <img src="/favicon.svg" width="88" height="88" style={{ borderRadius: 22, boxShadow: "0 8px 30px rgba(0,0,0,.18)", display: "block" }} alt="Olfah" />
       </div>
       <div className="fade-up" style={{ fontSize: 38, fontWeight: 700, color: "white", animationDelay: ".1s" }}>Olfah</div>
       <div className="fade-up" style={{ fontSize: 20, color: "rgba(255,255,255,.9)", marginTop: 4, animationDelay: ".2s", fontFamily: "'Noto Sans Arabic',sans-serif" }}>ألفة</div>
@@ -625,7 +624,7 @@ export default function Olfah() {
       <style>{css}</style>
       <div style={{ padding: "14px 20px", background: "white", borderBottom: "1px solid #e4ecf2", display: "flex", alignItems: "center", gap: 12, direction: "ltr", position: "sticky", top: 0, zIndex: 10 }}>
         <button onClick={goHome} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>
-        <div style={{ width: 36, height: 36, borderRadius: 12, background: PG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{IC.star}</div>
+        <img src="/favicon.svg" width="36" height="36" style={{ borderRadius: 10, flexShrink: 0 }} alt="Olfah" />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#1e2d3d", fontFamily: ff }}>{t.aiName}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
