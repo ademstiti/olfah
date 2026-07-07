@@ -1,4 +1,13 @@
 import { useState, useEffect, useRef } from "react";
+import {
+  getProfile, saveProfile, hasProfile, saveBabyLog, saveMotherLog,
+  recentBabyLogs, recentMotherLogs, recentJournalEntries, addJournalEntry,
+  addEscalationEvent, loggedDayCount, deleteAll,
+} from "./lib/store.js";
+import { evaluateText, evaluateBabyLog, evaluateMotherLog } from "./lib/safety.js";
+import { assembleContext } from "./lib/context.js";
+import { checkinForDay, CHECKIN_RESPONSES } from "./lib/checkins.js";
+import { ageWeeks, correctedAgeWeeks, dayKey } from "./lib/dates.js";
 
 const P = "#5BA4CF", PD = "#3D8AB8", PL = "#E8F4FA";
 const PG = "linear-gradient(135deg,#5BA4CF,#7BB8D9)";
@@ -62,32 +71,34 @@ function getSuggestions(aiText, lang) {
   return ["أخبريني أكثر", "هل هذا طبيعي؟"];
 }
 
-function buildJournalContext(jData, lang) {
-  const t = T[lang];
-  const parts = [];
-  if (jData.mood >= 0) parts.push(`mom mood: ${t.jMoodL[jData.mood]}`);
-  if (jData.sleep > 0) parts.push(`sleep: ${jData.sleep}h`);
-  if (jData.nightWakes >= 0) parts.push(`night wakes: ${["none", "1-2x", "3-4x", "5+"][jData.nightWakes]}`);
-  if (jData.feedType) parts.push(`feeding: ${jData.feedType}`);
-  if (jData.feeds > 0) parts.push(`${jData.feeds} feeds`);
-  if (jData.feedIssues?.length) parts.push(`feed concerns: ${jData.feedIssues.map(i => t.jFeedIssueItems[i]).join(", ")}`);
-  if (jData.bmood >= 0) parts.push(`baby mood: ${t.jBMoodL[jData.bmood]}`);
-  if (jData.symptoms?.length) parts.push(`baby flags: ${jData.symptoms.map(i => t.jSymptomItems[i]).join(", ")}`);
-  if (jData.support >= 0) parts.push(`support at home: ${t.jSupportOpts[jData.support]}`);
-  if (jData.notes) parts.push(`mom's note: "${jData.notes}"`);
-  return parts.join(" | ");
+// Assemble the structured <mother_context> block from profile + longitudinal
+// logs in the store (§6.7). Returns { xml, grounded, hasEnoughData }.
+function buildContext(lang) {
+  return assembleContext({
+    profile: getProfile(),
+    babyLogs: recentBabyLogs(14),
+    motherLogs: recentMotherLogs(14),
+    journalEntries: recentJournalEntries(3),
+  }, lang);
 }
 
-async function askAI(msgs, age, lang, jContext) {
+async function askAI(msgs, lang, ctx) {
+  const profile = getProfile();
+  const dob = profile?.baby?.dob;
+  const ageW = dob ? correctedAgeWeeks(dob, profile.baby.gestational_age_weeks) : null;
+  const ageStr = ageW != null ? `${ageW} weeks (corrected where relevant)` : "not specified";
   const sys = `You are Olfah (ألفة), a warm motherhood assistant for moms in Qatar and the Gulf.
 
 Tone: Like a knowledgeable friend, warm, direct, never preachy or over-cautious. Never say "it's important to note", "as always", or add boilerplate disclaimers. Get to the answer first.
-Baby's age: ${age || "not specified"}.
+Baby's age: ${ageStr}.
 Language: ${lang === "ar" ? "Gulf Arabic dialect, natural, conversational, warm. Not formal MSA." : "English"}.
-${jContext ? `Today's check-in: ${jContext}` : ""}
+
+${ctx?.xml ? `Use this mother's real logged context. Ground your answer in it naturally ("you logged 4 wakings last night") — never recite it robotically. Never invent data: if a needed field is missing, ask for it.\n${ctx.xml}` : ""}
+${ctx && !ctx.hasEnoughData ? "She has fewer than 3 days of logs — do not pretend deep familiarity; be honest and ask." : ""}
 
 Topics: feeding (breast/formula/pumping/solids), sleep, diapers, milestones, postpartum recovery, crying, colic, bathing, baby skin, common illnesses, growth spurts, teething.
 Format: 2–3 short paragraphs. Lead with the direct answer. End with warmth, not warnings. No bullet lists.
+Never diagnose; frame patterns as observations plus "worth mentioning to your pediatrician."
 
 ESCALATE, add [ESCALATE] alone on the last line, only for real red flags:
 • Fever in any baby under 3 months (any temperature)
@@ -164,6 +175,20 @@ const T = {
     jSymptomItems: ["حرارة", "بكاء شديد +3 ساعات", "طفح جلدي", "براز غير طبيعي", "نعاس شديد", "قيء", "لا يأكل كافي"],
     jSupportLabel: "عندك مساعدة في البيت اليوم؟",
     jSupportOpts: ["نعم، في من يساعد", "أحياناً", "لحالي اليوم"],
+    jNaps: "كم قيلولة نام طفلك؟", jNapsU: "قيلولة",
+    jLongest: "أطول فترة نوم متواصلة؟", jLongestL: ["أقل من ساعتين", "2-4 ساعات", "4-6 ساعات", "6+ ساعات"],
+    jWet: "كم حفاضًا مبللًا اليوم؟", jWetU: "مبلل",
+    jDirty: "كم حفاضًا متسخًا؟", jDirtyU: "متسخ",
+    jStool: "لون البراز (إن وجد)", jStoolL: ["أصفر", "أخضر", "بني", "أسود", "أحمر", "أبيض"],
+    jBleeding: "هل يوجد نزيف اليوم؟", jBleedingL: ["لا يوجد", "خفيف", "غزير"],
+    jPain: "هل تشعرين بألم اليوم؟", jPainU: "الألم",
+    jBfPain: "ألم في الرضاعة؟", jSupply: "قلق من كمية الحليب؟",
+    jCheckinLabel: "لحظة صغيرة معكِ", jNext: "التالي",
+    onbDob: "تاريخ ميلاد الطفل", onbDobHelp: "يحدّد عمر طفلك بالأسابيع, أهم معلومة",
+    onbFeeding: "كيف ترضعين طفلك؟", onbFeedingOpts: ["طبيعية", "صناعية", "الاثنين"],
+    onbDelivery: "نوع الولادة؟", onbDeliveryOpts: ["طبيعية", "قيصرية"],
+    onbFirst: "هل هذا طفلك الأول؟", onbYes: "نعم", onbNo: "لا",
+    escTitle: "تنبيه مهم", escSeeDoc: "تواصلي مع طبيب الآن",
     jWellbeingPH: "قلق، لحظة جميلة، أو بس كيف تحسين...",
     jStepNames: ["كيف حالك؟", "نومك", "الرضاعة", "طفلك اليوم", "أنتِ"],
     jStepSubs: ["كوني صريحة مع نفسك", "نومك مهم بقدر نوم طفلك", "سجّلي ما تيسّر", "كيف كان طفلك؟", "هل في شيء على بالك؟"],
@@ -217,6 +242,20 @@ const T = {
     jSymptomItems: ["Fever", "Fussy 3h+", "Skin rash", "Unusual stool", "Very sleepy", "Vomiting", "Not eating well"],
     jSupportLabel: "Do you have support at home today?",
     jSupportOpts: ["Yes, someone's helping", "Sometimes", "On my own today"],
+    jNaps: "How many naps?", jNapsU: "naps",
+    jLongest: "Longest sleep stretch?", jLongestL: ["<2h", "2-4h", "4-6h", "6h+"],
+    jWet: "Wet diapers today?", jWetU: "wet",
+    jDirty: "Dirty diapers?", jDirtyU: "dirty",
+    jStool: "Stool color (if any)", jStoolL: ["Yellow", "Green", "Brown", "Black", "Red", "White"],
+    jBleeding: "Bleeding today?", jBleedingL: ["None", "Light", "Heavy"],
+    jPain: "Pain today?", jPainU: "Pain",
+    jBfPain: "Breastfeeding pain?", jSupply: "Supply worries?",
+    jCheckinLabel: "A small moment for you", jNext: "Next",
+    onbDob: "Baby's date of birth", onbDobHelp: "Sets your baby's age in weeks — the single most important detail",
+    onbFeeding: "How do you feed your baby?", onbFeedingOpts: ["Breast", "Formula", "Both"],
+    onbDelivery: "Delivery type?", onbDeliveryOpts: ["Vaginal", "C-section"],
+    onbFirst: "Is this your first baby?", onbYes: "Yes", onbNo: "No",
+    escTitle: "Important", escSeeDoc: "Connect to a doctor now",
     jWellbeingPH: "A worry, a win, or just how you're feeling...",
     jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
     jStepSubs: ["Be honest with yourself", "Your rest matters too", "Log what you can", "How was your little one?", "Anything on your mind?"],
@@ -231,6 +270,28 @@ const T = {
     s1L: "Sleep", s2L: "Feeding", s3L: "Rash+Fever", s4L: "Crying",
   },
 };
+
+// Canonical values stored in the log (language-independent). Labels come from T.
+const STOOL_VALS = ["yellow", "green", "brown", "black", "red", "white"];
+const STOOL_HEX = { yellow: "#F4C542", green: "#5A8F4E", brown: "#7A5230", black: "#2b2b2b", red: "#C0392B", white: "#EDEDED" };
+const BLEEDING_VALS = ["none", "light", "heavy"];
+const LONGEST_VALS = ["<2h", "2-4h", "4-6h", "6h+"];
+const FEEDING_VALS = ["breast", "formula", "mixed"];
+const DELIVERY_VALS = ["vaginal", "c-section"];
+// symptom chip index → canonical health_flag (index 0 = fever drives T4)
+const HEALTH_FLAG_VALS = ["fever", "unusual_cry", "rash", "unusual_stool", "lethargy", "vomiting", "poor_feeding"];
+// night-wakings enum index → representative count for trends/context
+const NIGHTWAKE_NUM = [0, 2, 4, 6];
+// feed-type chip index → canonical feed_types[]
+const FEEDTYPE_MAP = [["breast"], ["bottle"], ["breast", "bottle"], ["bottle"]];
+
+function sleepBucket(h) {
+  if (h == null) return null;
+  if (h < 3) return "<3";
+  if (h < 5) return "3-5";
+  if (h < 7) return "5-7";
+  return "7+";
+}
 
 const DEFAULT_POSTS = {
   ar: [
@@ -346,7 +407,7 @@ button:not([disabled]):active { transform: scale(0.95); opacity: 0.85; }
 export default function Olfah() {
   const [scr, setScr] = useState(S.SPLASH);
   const [lang, setLang] = useState("ar");
-  const [age, setAge] = useState("");
+  const [age] = useState("");
   const [msgs, setMsgs] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [input, setInput] = useState("");
@@ -355,8 +416,18 @@ export default function Olfah() {
   const [docSt, setDocSt] = useState(0);
   const [booked, setBooked] = useState(false);
   const [jStep, setJStep] = useState(0);
-  const [jData, setJData] = useState({ mood: -1, sleep: 5, nightWakes: -1, feedType: "", feeds: 6, feedIssues: [], bmood: -1, symptoms: [], diapers: 5, support: -1, notes: "" });
+  const [jData, setJData] = useState({
+    mood: -1, sleep: 5, nightWakes: -1, feedType: "", feedTypeIdx: -1, feeds: 6, feedIssues: [],
+    bmood: -1, symptoms: [], support: -1, notes: "",
+    naps: 3, longest: -1, wet: 6, dirty: 2, stool: "", bleeding: -1, pain: 0,
+    bfPain: false, supplyConcern: false, checkinResp: -1,
+  });
   const [jDone, setJDone] = useState(false);
+  const [jEsc, setJEsc] = useState([]);   // hardcoded escalations from journal save (§6.9)
+  const [chatEsc, setChatEsc] = useState(null); // T1 template that overrides the chat answer
+  const [profile, setProfile] = useState(null);
+  const [onb, setOnb] = useState({ dob: "", feedingIdx: -1, deliveryIdx: -1, firstBaby: null });
+  const checkin = checkinForDay();
   const [posts, setPosts] = useState([]);
   const [likedPosts, setLikedPosts] = useState({});
   const [newPost, setNewPost] = useState("");
@@ -372,17 +443,15 @@ export default function Olfah() {
   const ff = rtl ? "'Noto Sans Arabic',sans-serif" : "'Plus Jakarta Sans',sans-serif";
 
   useEffect(() => {
-    const savedLang = load("olfah-lang", null);
-    const savedAge = load("olfah-age", null);
-    const savedJournal = load("olfah-journal", null);
-    const savedJDone = load("olfah-jdone", false);
+    const prof = getProfile();
+    const savedLang = prof?.mother?.language_pref || load("olfah-lang", null);
     const savedPosts = load("olfah-posts", null);
     const savedChat = load("olfah-chat", []);
     const savedLiked = load("olfah-liked", {});
     if (savedLang) setLang(savedLang);
-    if (savedAge) { setAge(savedAge); setScr(S.HOME); }
-    if (savedJournal) setJData(savedJournal);
-    if (savedJDone) setJDone(true);
+    setProfile(prof);
+    if (hasProfile()) { setProfile(prof); setScr(S.HOME); }
+    if (loggedDayCount() > 0) setJDone(true);
     if (savedChat.length) setChatHist(savedChat);
     setLikedPosts(savedLiked);
     setPosts(savedPosts || DEFAULT_POSTS[savedLang || "ar"]);
@@ -412,16 +481,43 @@ export default function Olfah() {
     }
   }, [scr]);
 
-  const saveOnboard = (a, l) => { store("olfah-age", a); store("olfah-lang", l); setScr(S.HOME); };
+  const saveOnboard = ({ dob, feedingIdx, deliveryIdx, firstBaby }, l) => {
+    const saved = saveProfile({
+      baby: {
+        dob,
+        feeding_method: feedingIdx >= 0 ? FEEDING_VALS[feedingIdx] : "mixed",
+      },
+      mother: {
+        first_baby: firstBaby,
+        delivery_type: deliveryIdx >= 0 ? DELIVERY_VALS[deliveryIdx] : "",
+        language_pref: l,
+      },
+    });
+    store("olfah-lang", l);
+    setProfile(saved);
+    setScr(S.HOME);
+  };
 
   const send = async (text) => {
     if (!text.trim() || loading) return;
-    setSuggestions([]);
+    setSuggestions([]); setChatEsc(null);
     const userMsg = { from: "user", text: text.trim(), ts: Date.now() };
     const newMsgs = [...msgs, userMsg];
-    setMsgs(newMsgs); setInput(""); setLoading(true); setEsc(false);
-    const jCtx = jDone ? buildJournalContext(jData, lang) : "";
-    const res = await askAI(newMsgs, age, lang, jCtx);
+    setMsgs(newMsgs); setInput(""); setEsc(false);
+
+    // §6.9 T1 — deterministic self-harm check BEFORE any AI generation.
+    const t1 = evaluateText(text, lang);
+    if (t1.length) {
+      const tpl = t1[0];
+      addJournalEntry({ text: text.trim(), source: "chat", safety_class: "T1" });
+      addEscalationEvent({ trigger_id: "T1", severity: tpl.severity, payload: { context: "chat" } });
+      setChatEsc(tpl);
+      return;
+    }
+
+    setLoading(true);
+    const ctx = buildContext(lang);
+    const res = await askAI(newMsgs, lang, ctx);
     const aiMsg = { from: "ai", text: res.text, ts: Date.now() };
     const final = [...newMsgs, aiMsg];
     setMsgs(final); setLoading(false);
@@ -432,7 +528,44 @@ export default function Olfah() {
     store("olfah-chat", hist.slice(-20));
   };
 
-  const saveJournal = () => { setJDone(true); store("olfah-journal", jData); store("olfah-jdone", true); };
+  const saveJournal = () => {
+    const prof = getProfile();
+    const babyLog = {
+      feeds_count: jData.feeds,
+      feed_types: jData.feedTypeIdx >= 0 ? FEEDTYPE_MAP[jData.feedTypeIdx] : [],
+      naps_count: jData.naps >= 0 ? jData.naps : null,
+      night_wakings: jData.nightWakes >= 0 ? NIGHTWAKE_NUM[jData.nightWakes] : null,
+      longest_sleep: jData.longest >= 0 ? LONGEST_VALS[jData.longest] : null,
+      wet_diapers: jData.wet,
+      dirty_diapers: jData.dirty,
+      stool_color: jData.stool || null,
+      fussiness: jData.bmood >= 0 ? jData.bmood + 1 : null,
+      health_flags: (jData.symptoms || []).map((i) => HEALTH_FLAG_VALS[i]).filter(Boolean),
+    };
+    const motherLog = {
+      mood: jData.mood >= 0 ? jData.mood + 1 : null,
+      sleep_hours: sleepBucket(jData.sleep),
+      pain_level: jData.pain,
+      bleeding: jData.bleeding >= 0 ? BLEEDING_VALS[jData.bleeding] : null,
+      bf_pain: jData.bfPain,
+      supply_concern: jData.supplyConcern,
+      checkin_item_id: checkin.id,
+      checkin_response: jData.checkinResp >= 0 ? jData.checkinResp : null,
+      received_help: jData.support === 0 ? true : jData.support === 2 ? false : null,
+    };
+    saveBabyLog(babyLog);
+    saveMotherLog(motherLog);
+    if (jData.notes?.trim()) addJournalEntry({ text: jData.notes.trim(), source: "text" });
+
+    // §6.9 deterministic escalation on save — hardcoded, not AI.
+    const escs = [
+      ...evaluateBabyLog(babyLog, prof, lang),
+      ...evaluateMotherLog(motherLog, recentMotherLogs(3), prof, lang),
+    ];
+    escs.forEach((e) => addEscalationEvent({ trigger_id: e.triggerId, severity: e.severity, payload: { reason: e.reason } }));
+    setJEsc(escs);
+    setJDone(true);
+  };
 
   const addPost = () => {
     if (!newPost.trim()) return;
@@ -455,7 +588,7 @@ export default function Olfah() {
     setPosts(updated); setLikedPosts(newLiked); store("olfah-posts", updated); store("olfah-liked", newLiked);
   };
 
-  const goChat = () => { setScr(S.CHAT); setMsgs([]); setSuggestions([]); setEsc(false); setTimeout(() => inRef.current?.focus(), 300); };
+  const goChat = () => { setScr(S.CHAT); setMsgs([]); setSuggestions([]); setEsc(false); setChatEsc(null); setTimeout(() => inRef.current?.focus(), 300); };
   const goHome = () => setScr(S.HOME);
 
   const Nav = ({ active }) => (
@@ -493,6 +626,40 @@ export default function Olfah() {
     }}>{children}</button>
   );
 
+  // ── journal input helpers (big touch targets, one-handed §10) ──
+  const Stepper = ({ label, unit, value, onDec, onInc }) => (
+    <>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, background: "white", borderRadius: 16, padding: "14px 18px", marginBottom: 22, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
+        <button onClick={onDec} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>−</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <span style={{ fontSize: 38, fontWeight: 700, color: PD }}>{value}</span>
+          {unit && <span style={{ fontSize: 13, color: "#99aab5", marginLeft: 6 }}>{unit}</span>}
+        </div>
+        <button onClick={onInc} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>+</button>
+      </div>
+    </>
+  );
+
+  const ChipRow = ({ label, options, selected, onSelect, warn }) => (
+    <>
+      {label && <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{label}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
+        {options.map((opt, i) => {
+          const on = selected === i;
+          const c = warn ? WARN : P;
+          return (
+            <button key={i} onClick={() => onSelect(on ? -1 : i)} style={{
+              padding: "11px 18px", borderRadius: 22, fontSize: 13, fontFamily: ff,
+              border: `2px solid ${on ? c : "#d0dce5"}`, background: on ? (warn ? "#FFF3E0" : PL) : "white",
+              color: on ? (warn ? WARN : PD) : "#7a8d9e", fontWeight: on ? 600 : 400, transition: "all .15s",
+            }}>{on ? "✓ " : ""}{opt}</button>
+          );
+        })}
+      </div>
+    </>
+  );
+
   // ─── SPLASH ───
   if (scr === S.SPLASH) return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#A7D5EC,#5BA4CF 40%,#3D8AB8)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: ff }}>
@@ -508,28 +675,59 @@ export default function Olfah() {
   );
 
   // ─── ONBOARDING ───
-  if (scr === S.ONBOARD) return (
-    <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", padding: "40px 24px 30px", direction: dir, fontFamily: ff }}>
-      <style>{css}</style>
-      <div style={{ fontSize: 13, color: P, fontWeight: 600, marginBottom: 6 }}>{t.onboardTitle}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: "#1e2d3d", lineHeight: 1.4, marginBottom: 6 }}>{t.onboardSub} 💛</div>
-      <div style={{ fontSize: 14, color: "#7a8d9e", marginBottom: 30 }}>{t.onboardHelp}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.langLabel}</div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 28 }}>
-        {[{ l: "ar", label: "العربية" }, { l: "en", label: "English" }].map(({ l, label }) => (
-          <button key={l} onClick={() => setLang(l)} style={{ padding: "10px 22px", borderRadius: 22, border: lang === l ? `2px solid ${P}` : "2px solid #d0dce5", background: lang === l ? PL : "white", color: lang === l ? PD : "#3d5a73", fontSize: 13, fontWeight: lang === l ? 600 : 400, fontFamily: ff }}>{label}</button>
-        ))}
+  if (scr === S.ONBOARD) {
+    const pill = (selected) => ({
+      padding: "10px 18px", borderRadius: 22, fontSize: 13, fontFamily: ff,
+      border: selected ? `2px solid ${P}` : "2px solid #d0dce5",
+      background: selected ? PL : "white", color: selected ? PD : "#3d5a73",
+      fontWeight: selected ? 600 : 400, transition: "all .15s",
+    });
+    return (
+      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", padding: "40px 24px 30px", direction: dir, fontFamily: ff, overflowY: "auto" }}>
+        <style>{css}</style>
+        <div style={{ fontSize: 13, color: P, fontWeight: 600, marginBottom: 6 }}>{t.onboardTitle}</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: "#1e2d3d", lineHeight: 1.4, marginBottom: 6 }}>{t.onboardSub} 💛</div>
+        <div style={{ fontSize: 14, color: "#7a8d9e", marginBottom: 26 }}>{t.onboardHelp}</div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.langLabel}</div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+          {[{ l: "ar", label: "العربية" }, { l: "en", label: "English" }].map(({ l, label }) => (
+            <button key={l} onClick={() => setLang(l)} style={pill(lang === l)}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 6 }}>{t.onbDob} <span style={{ color: WARN }}>*</span></div>
+        <div style={{ fontSize: 11, color: "#99aab5", marginBottom: 10 }}>{t.onbDobHelp}</div>
+        <input type="date" value={onb.dob} max={dayKey(new Date())}
+          onChange={e => setOnb(o => ({ ...o, dob: e.target.value }))}
+          style={{ padding: "12px 16px", borderRadius: 14, border: `2px solid ${onb.dob ? P : "#d0dce5"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, marginBottom: 24, outline: "none", direction: "ltr", textAlign: rtl ? "right" : "left" }} />
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbFeeding}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
+          {t.onbFeedingOpts.map((label, i) => (
+            <button key={i} onClick={() => setOnb(o => ({ ...o, feedingIdx: i }))} style={pill(onb.feedingIdx === i)}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbDelivery}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
+          {t.onbDeliveryOpts.map((label, i) => (
+            <button key={i} onClick={() => setOnb(o => ({ ...o, deliveryIdx: i }))} style={pill(onb.deliveryIdx === i)}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbFirst}</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
+          {[{ v: true, label: t.onbYes }, { v: false, label: t.onbNo }].map(({ v, label }) => (
+            <button key={label} onClick={() => setOnb(o => ({ ...o, firstBaby: v }))} style={pill(onb.firstBaby === v)}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 20 }} />
+        <Btn full onClick={() => onb.dob && saveOnboard(onb, lang)} disabled={!onb.dob}>{t.start}</Btn>
       </div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.ageLabel}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
-        {t.ages.map(a => (
-          <button key={a} onClick={() => setAge(a)} style={{ padding: "10px 18px", borderRadius: 22, border: age === a ? `2px solid ${P}` : "2px solid #d0dce5", background: age === a ? PL : "white", color: age === a ? PD : "#3d5a73", fontSize: 13, fontWeight: age === a ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>{a}</button>
-        ))}
-      </div>
-      <div style={{ flex: 1 }} />
-      <Btn full onClick={() => age && saveOnboard(age, lang)} disabled={!age}>{t.start}</Btn>
-    </div>
-  );
+    );
+  }
 
   // ─── HOME ───
   if (scr === S.HOME) return (
@@ -594,7 +792,7 @@ export default function Olfah() {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {[
-                { v: jData.feeds, l: t.feeds }, { v: jData.diapers, l: t.diapers }, { v: jData.sleep, l: t.sleepH },
+                { v: jData.feeds, l: t.feeds }, { v: jData.wet + jData.dirty, l: t.diapers }, { v: jData.sleep, l: t.sleepH },
                 { v: jData.mood >= 0 ? t.jMoods[jData.mood] : "-", l: t.yourMood },
               ].map((x, i) => (
                 <div key={i} style={{ flex: 1, background: PL, borderRadius: 10, padding: "8px 4px", textAlign: "center" }}>
@@ -668,6 +866,15 @@ export default function Olfah() {
                 {s}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* §6.9 T1 — hardcoded crisis template that OVERRIDES the AI answer */}
+        {chatEsc && (
+          <div className="fade-up" style={{ background: "#FFF3E0", borderRadius: 16, padding: "18px", border: "2px solid #FFCC80", maxWidth: "92%", alignSelf: rtl ? "flex-end" : "flex-start", direction: dir }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#BF360C", marginBottom: 8 }}>{chatEsc.title}</div>
+            <div style={{ fontSize: 13, color: "#4E342E", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{chatEsc.body}</div>
+            <Btn full onClick={() => setScr(S.DOC)} style={{ marginTop: 14, background: WARN, boxShadow: "0 4px 12px rgba(230,81,0,.3)" }}>{chatEsc.action}</Btn>
           </div>
         )}
 
@@ -847,6 +1054,19 @@ export default function Olfah() {
         <div className="fade-up" style={{ width: 80, height: 80, borderRadius: "50%", background: `linear-gradient(135deg,${OK},#66BB6A)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "white", marginBottom: 20, boxShadow: "0 8px 28px rgba(76,175,80,.28)" }}>✓</div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.jSaved}</div>
         <div style={{ fontSize: 13, color: OK, fontWeight: 600, marginBottom: 24 }}>{t.jStreak}</div>
+
+        {/* §6.9 hardcoded escalations surfaced on save — most severe first */}
+        {jEsc.length > 0 && [...jEsc].sort((a, b) => (b.severity === "emergency") - (a.severity === "emergency")).map((e, i) => {
+          const emergency = e.severity === "emergency" || e.severity === "critical";
+          return (
+            <div key={i} className="fade-up" style={{ width: "100%", background: emergency ? "#FDECEA" : "#FFF3E0", borderRadius: 16, padding: "16px 18px", marginBottom: 12, border: `2px solid ${emergency ? "#F5B7B1" : "#FFCC80"}`, textAlign: rtl ? "right" : "left" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: emergency ? "#B71C1C" : "#BF360C", marginBottom: 6 }}>{emergency ? "🚨 " : "⚠️ "}{e.title}</div>
+              <div style={{ fontSize: 13, color: "#4E342E", lineHeight: 1.65, marginBottom: 12 }}>{e.body}</div>
+              <Btn full onClick={() => setScr(S.DOC)} style={{ background: emergency ? "#C62828" : WARN, boxShadow: "none" }}>{e.action}</Btn>
+            </div>
+          );
+        })}
+
         <div style={{ background: "white", borderRadius: 18, padding: "18px 20px", marginBottom: 20, border: `1.5px solid ${P}22`, width: "100%", boxShadow: "0 2px 16px rgba(91,164,207,.1)" }}>
           <div style={{ fontSize: 13, color: "#3d5a73", lineHeight: 1.7, textAlign: "center" }}>💡 {computeInsight(jData, lang)}</div>
         </div>
@@ -929,7 +1149,7 @@ export default function Olfah() {
               </div>
             </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jNightWakes}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
               {t.jWakeOpts.map((opt, i) => (
                 <button key={i} onClick={() => setJData(d => ({ ...d, nightWakes: i }))} style={{
                   padding: "16px 10px", borderRadius: 16, textAlign: "center",
@@ -942,6 +1162,11 @@ export default function Olfah() {
                 }}>{opt}</button>
               ))}
             </div>
+            <Stepper label={t.jNaps} unit={t.jNapsU} value={jData.naps}
+              onDec={() => setJData(d => ({ ...d, naps: Math.max(0, d.naps - 1) }))}
+              onInc={() => setJData(d => ({ ...d, naps: Math.min(8, d.naps + 1) }))} />
+            <ChipRow label={t.jLongest} options={t.jLongestL} selected={jData.longest}
+              onSelect={(v) => setJData(d => ({ ...d, longest: v }))} />
           </>}
 
           {/* Step 2: Feeding */}
@@ -949,26 +1174,48 @@ export default function Olfah() {
             <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jFeedType}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
               {t.jFeedTypes.map((label, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, feedType: label }))} style={{
+                <button key={i} onClick={() => setJData(d => ({ ...d, feedType: label, feedTypeIdx: i }))} style={{
                   padding: "16px 10px", borderRadius: 16, textAlign: "center",
-                  border: `2px solid ${jData.feedType === label ? P : "#e4ecf2"}`,
-                  background: jData.feedType === label ? PL : "white",
-                  boxShadow: jData.feedType === label ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
+                  border: `2px solid ${jData.feedTypeIdx === i ? P : "#e4ecf2"}`,
+                  background: jData.feedTypeIdx === i ? PL : "white",
+                  boxShadow: jData.feedTypeIdx === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
                   transition: "all .15s", fontFamily: ff,
                 }}>
                   <div style={{ fontSize: 28, marginBottom: 6 }}>{t.jFeedIcons[i]}</div>
-                  <div style={{ fontSize: 12, fontWeight: jData.feedType === label ? 600 : 400, color: jData.feedType === label ? PD : "#3d5a73" }}>{label}</div>
+                  <div style={{ fontSize: 12, fontWeight: jData.feedTypeIdx === i ? 600 : 400, color: jData.feedTypeIdx === i ? PD : "#3d5a73" }}>{label}</div>
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jFeeds}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, background: "white", borderRadius: 16, padding: "16px 20px", marginBottom: 22, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
-              <button onClick={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>−</button>
-              <div style={{ flex: 1, textAlign: "center" }}>
-                <span style={{ fontSize: 42, fontWeight: 700, color: PD }}>{jData.feeds}</span>
-                <span style={{ fontSize: 13, color: "#99aab5", marginLeft: 6 }}>{t.jFeedsU}</span>
+            <Stepper label={t.jFeeds} unit={t.jFeedsU} value={jData.feeds}
+              onDec={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))}
+              onInc={() => setJData(d => ({ ...d, feeds: Math.min(24, d.feeds + 1) }))} />
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <Stepper label={t.jWet} unit={t.jWetU} value={jData.wet}
+                  onDec={() => setJData(d => ({ ...d, wet: Math.max(0, d.wet - 1) }))}
+                  onInc={() => setJData(d => ({ ...d, wet: Math.min(15, d.wet + 1) }))} />
               </div>
-              <button onClick={() => setJData(d => ({ ...d, feeds: d.feeds + 1 }))} style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid #d0dce5", background: "#f5f8fa", fontSize: 22, color: "#3d5a73" }}>+</button>
+              <div style={{ flex: 1 }}>
+                <Stepper label={t.jDirty} unit={t.jDirtyU} value={jData.dirty}
+                  onDec={() => setJData(d => ({ ...d, dirty: Math.max(0, d.dirty - 1) }))}
+                  onInc={() => setJData(d => ({ ...d, dirty: Math.min(10, d.dirty + 1) }))} />
+              </div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jStool}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
+              {STOOL_VALS.map((v, i) => {
+                const on = jData.stool === v;
+                return (
+                  <button key={v} onClick={() => setJData(d => ({ ...d, stool: on ? "" : v }))} style={{
+                    display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 22,
+                    border: `2px solid ${on ? PD : "#d0dce5"}`, background: on ? PL : "white",
+                    color: on ? PD : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff,
+                  }}>
+                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: STOOL_HEX[v], border: "1px solid #d0dce5", display: "inline-block" }} />
+                    {t.jStoolL[i]}
+                  </button>
+                );
+              })}
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#7a8d9e", marginBottom: 10 }}>{t.jFeedIssueLabel}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -1014,9 +1261,56 @@ export default function Olfah() {
 
           {/* Step 4: Wellbeing */}
           {jStep === 4 && <>
+            {/* M6 rotating EPDS-derived check-in (adapted, not diagnostic) */}
+            <div style={{ background: PL, borderRadius: 16, padding: "16px", marginBottom: 22 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: PD, marginBottom: 8 }}>🌸 {t.jCheckinLabel}</div>
+              <div style={{ fontSize: 14, color: "#1e2d3d", lineHeight: 1.6, marginBottom: 12 }}>{lang === "ar" ? checkin.ar : checkin.en}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {CHECKIN_RESPONSES.map((r) => {
+                  const on = jData.checkinResp === r.value;
+                  return (
+                    <button key={r.value} onClick={() => setJData(d => ({ ...d, checkinResp: on ? -1 : r.value }))} style={{
+                      flex: 1, padding: "10px 6px", borderRadius: 12, fontSize: 12, fontFamily: ff,
+                      border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? "white" : "transparent",
+                      color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400,
+                    }}>{lang === "ar" ? r.ar : r.en}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Postpartum recovery — pain always; bleeding only weeks 0-8 (§6.3) */}
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.jPain}</div>
+            <div style={{ background: "white", borderRadius: 16, padding: "14px 18px", marginBottom: 22, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
+              <div style={{ textAlign: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 32, fontWeight: 700, color: jData.pain >= 7 ? WARN : jData.pain >= 4 ? "#F9A825" : OK }}>{jData.pain}</span>
+                <span style={{ fontSize: 13, color: "#99aab5" }}>/10</span>
+              </div>
+              <input type="range" min="0" max="10" step="1" value={jData.pain}
+                onChange={e => setJData(d => ({ ...d, pain: +e.target.value }))}
+                style={{ width: "100%", accentColor: P, cursor: "pointer" }} />
+            </div>
+            <ChipRow label={t.jBleeding} options={t.jBleedingL} selected={jData.bleeding} warn
+              onSelect={(v) => setJData(d => ({ ...d, bleeding: v }))} />
+
+            {(profile?.baby?.feeding_method !== "formula") && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
+                {[{ k: "bfPain", label: t.jBfPain }, { k: "supplyConcern", label: t.jSupply }].map(({ k, label }) => {
+                  const on = jData[k];
+                  return (
+                    <button key={k} onClick={() => setJData(d => ({ ...d, [k]: !d[k] }))} style={{
+                      flex: 1, padding: "12px 10px", borderRadius: 14, fontSize: 12, fontFamily: ff, textAlign: "center",
+                      border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white",
+                      color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400,
+                    }}>{on ? "✓ " : ""}{label}</button>
+                  );
+                })}
+              </div>
+            )}
+
             <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))}
               placeholder={t.jWellbeingPH}
-              style={{ width: "100%", height: 120, padding: "16px", borderRadius: 18, border: "2px solid #e4ecf2", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.7, color: "#1e2d3d", marginBottom: 24, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }} />
+              style={{ width: "100%", height: 110, padding: "16px", borderRadius: 18, border: "2px solid #e4ecf2", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.7, color: "#1e2d3d", marginBottom: 24, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }} />
             <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jSupportLabel}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {t.jSupportOpts.map((opt, i) => (
