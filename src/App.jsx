@@ -199,6 +199,20 @@ const T = {
     onbSkip: "تخطي", onbNext: "التالي", onbBack: "السابق",
     onbAgePreview: (n, w) => `${n || "طفلك"} عمره ${w} ${w === 1 ? "أسبوع" : "أسابيع"} 🌱`,
     onbDone: "كل شيء جاهز 💛",
+    onbSkipIntro: "تخطي المقدمة",
+    onbWelcomeLine: "بعض الأيام تكون جميلة، وفي ليالٍ تستيقظين الثالثة فجراً وتسألين نفسك: هل أفعل الصواب؟ كلاهما طبيعي تماماً، ولستِ وحدك في هذا.",
+    onbNotAloneTitle: "لستِ وحدك",
+    onbNotAlone: "واحدة من كل سبع أمهات تشعر بالإرهاق أو القلق بعد الولادة، وقلّما تتحدث إحداهن عن ذلك. أن تلاحظي مشاعركِ قليلاً كل يوم هو أول خطوة لتعودي إلى نفسك.",
+    onbNotAloneFoot: "أمهات مثلكِ يتحدثن هنا كل يوم",
+    onbWhyTitle: "ألفة صُنعت لأجلك",
+    onbWhySub: "ليست مجرد تطبيق آخر للأطفال",
+    onbWhy: [
+      { t: "تعرف طفلك أنتِ", s: "تجيبك عن سؤالك، لا عن 'طفلٍ في الشهر الثالث'" },
+      { t: "بلغتكِ ولهجتكِ", s: "عربي أو إنجليزي، بطريقتك في الكلام" },
+      { t: "تهتم بكِ أنتِ", s: "ترعاكِ أنتِ، لا طفلك فقط" },
+    ],
+    onbPayoffTitle: (n, w) => `مضى على ولادة ${n || "صغيرك"} ${w} ${w === 1 ? "أسبوع" : "أسابيع"} 🌱`,
+    onbPayoffBody: "سأتذكّر كل ما تسجّلينه من نوم ورضعات وكيف حالكِ أنتِ. وحين تسألينني شيئاً في الثالثة فجراً، أعرف قصتك مسبقاً.",
     escTitle: "تنبيه مهم", escSeeDoc: "تواصلي مع طبيب الآن",
     jWellbeingPH: "قلق، لحظة جميلة، أو بس كيف تحسين...",
     jStepNames: ["كيف حالك؟", "نومك", "الرضاعة", "طفلك اليوم", "أنتِ"],
@@ -277,6 +291,20 @@ const T = {
     onbSkip: "Skip", onbNext: "Continue", onbBack: "Back",
     onbAgePreview: (n, w) => `${n || "Baby"} is ${w} ${w === 1 ? "week" : "weeks"} old 🌱`,
     onbDone: "You're all set 💛",
+    onbSkipIntro: "Skip intro",
+    onbWelcomeLine: "Some days feel wonderful. Some nights you're wide awake at 3am wondering if you're getting it right. Both are completely normal — and you're not doing this alone.",
+    onbNotAloneTitle: "You're not alone",
+    onbNotAlone: "1 in 7 mothers feels overwhelmed or anxious after birth — and almost no one talks about it. Noticing how you feel, a little each day, is how you start to feel like yourself again.",
+    onbNotAloneFoot: "Mothers like you talk here every day",
+    onbWhyTitle: "Olfah is built for you",
+    onbWhySub: "Not just another baby app",
+    onbWhy: [
+      { t: "Knows your baby", s: "Answers about your little one, not 'a 3-week-old'" },
+      { t: "Your language, your dialect", s: "Arabic or English, the way you speak" },
+      { t: "Looks after you too", s: "Cares for you, not just the baby" },
+    ],
+    onbPayoffTitle: (n, w) => `${n || "Your baby"} is ${w} ${w === 1 ? "week" : "weeks"} old 🌱`,
+    onbPayoffBody: "I'll remember everything you log — sleep, feeds, and how you're doing. So when you ask me something at 3am, I already know your story.",
     escTitle: "Important", escSeeDoc: "Connect to a doctor now",
     jWellbeingPH: "A worry, a win, or just how you're feeling...",
     jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
@@ -698,17 +726,23 @@ export default function Olfah() {
     </div>
   );
 
-  // ─── ONBOARDING (warm, stepped, ≤2 min) ───
+  // ─── ONBOARDING (warm, stepped: 3 intro · 3 data · payoff) ───
   if (scr === S.ONBOARD) {
-    const ONB_STEPS = 4;
+    const ONB_STEPS = 7;           // 0-2 intro · 3-5 data · 6 payoff
+    const DATA_START = 3, DATA_END = 5;
     const step = onb.step;
     const setStep = (s) => setOnb(o => ({ ...o, step: s }));
     const previewW = onb.dob ? ageWeeks(onb.dob) : null;
+    const isData = step >= DATA_START && step <= DATA_END;
+    const isPayoff = step === ONB_STEPS - 1;
+    const canNext = step === DATA_START ? !!onb.dob : true; // DOB is the only gate
+    const skippable = step === 4 || step === 5;             // optional data steps
+    const advance = () => { if (step < ONB_STEPS - 1) setStep(step + 1); else saveOnboard(onb, lang); };
 
     // selectable card (icon + label), scales on select
-    const Card = ({ selected, onClick, icon, label, sub, wide }) => (
+    const Card = ({ selected, onClick, icon, label, sub }) => (
       <button onClick={onClick} style={{
-        flex: wide ? "1 1 100%" : 1, minWidth: 0, display: "flex", flexDirection: "column",
+        flex: 1, minWidth: 0, display: "flex", flexDirection: "column",
         alignItems: "center", gap: 8, padding: "20px 12px", borderRadius: 20, fontFamily: ff,
         border: `2px solid ${selected ? P : "#e4ecf2"}`, background: selected ? PL : "white",
         boxShadow: selected ? `0 0 0 4px ${P}22, 0 6px 18px rgba(91,164,207,.18)` : "0 2px 10px rgba(0,0,0,.04)",
@@ -720,33 +754,34 @@ export default function Olfah() {
       </button>
     );
 
-    const canNext = step === 1 ? !!onb.dob : true;   // DOB is the only gate
-    const optional = step === 2 || step === 3;
-    const advance = () => { if (step < ONB_STEPS - 1) setStep(step + 1); else saveOnboard(onb, lang); };
+    const solidarityPost = DEFAULT_POSTS[lang][1]; // the day-12 postpartum post
 
     return (
       <div className="screen-in" style={{ minHeight: "100vh", background: "linear-gradient(180deg,#EAF4FB 0%,#F8FBFD 42%)", display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
 
-        {/* top bar: back · progress dots · skip */}
+        {/* top bar: back · (data) progress dots · skip */}
         <div style={{ padding: "16px 20px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40 }}>
-          <button onClick={() => step > 0 && setStep(step - 1)} style={{ background: "none", border: "none", padding: 0, width: 40, opacity: step > 0 ? 1 : 0, pointerEvents: step > 0 ? "auto" : "none" }}>{IC.back}</button>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {Array.from({ length: ONB_STEPS }).map((_, i) => (
-              <div key={i} style={{ height: 6, borderRadius: 3, background: i <= step ? P : "#d3e2ee", width: i === step ? 22 : 6, transition: "all .3s ease" }} />
+          <button onClick={() => step > 0 && setStep(step - 1)} style={{ background: "none", border: "none", padding: 0, width: 70, textAlign: rtl ? "right" : "left", opacity: step > 0 ? 1 : 0, pointerEvents: step > 0 ? "auto" : "none" }}>{IC.back}</button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", opacity: isData ? 1 : 0 }}>
+            {Array.from({ length: DATA_END - DATA_START + 1 }).map((_, i) => (
+              <div key={i} style={{ height: 6, borderRadius: 3, background: i <= step - DATA_START ? P : "#d3e2ee", width: i === step - DATA_START ? 22 : 6, transition: "all .3s ease" }} />
             ))}
           </div>
-          <button onClick={advance} style={{ background: "none", border: "none", fontSize: 12, color: "#a9bccb", fontFamily: ff, width: 40, textAlign: rtl ? "left" : "right", visibility: optional ? "visible" : "hidden" }}>{t.onbSkip}</button>
+          <button onClick={() => step === 0 ? setStep(DATA_START) : advance()}
+            style={{ background: "none", border: "none", fontSize: 12, color: "#a9bccb", fontFamily: ff, width: 70, textAlign: rtl ? "left" : "right", visibility: (step === 0 || skippable) ? "visible" : "hidden" }}>
+            {step === 0 ? t.onbSkipIntro : t.onbSkip}
+          </button>
         </div>
 
-        <div key={step} className="fade-up" style={{ flex: 1, overflowY: "auto", padding: "20px 26px 12px", display: "flex", flexDirection: "column" }}>
+        <div key={step} className="fade-up" style={{ flex: 1, overflowY: "auto", padding: "16px 26px 12px", display: "flex", flexDirection: "column" }}>
 
-          {/* Step 0 — welcome + language */}
+          {/* Step 0 — warm welcome + language */}
           {step === 0 && <>
-            <div style={{ textAlign: "center", marginBottom: 30, marginTop: 12 }}>
-              <img src="/favicon.svg" width="76" height="76" style={{ borderRadius: 20, boxShadow: "0 10px 30px rgba(91,164,207,.3)", marginBottom: 18 }} alt="Olfah" />
-              <div style={{ fontSize: 25, fontWeight: 700, color: "#1e2d3d", marginBottom: 8 }}>{t.onbHero}</div>
-              <div style={{ fontSize: 14, color: "#7a8d9e", lineHeight: 1.6, maxWidth: 300, margin: "0 auto" }}>{t.onbHeroSub}</div>
+            <div style={{ textAlign: "center", marginBottom: 28, marginTop: 8 }}>
+              <img src="/favicon.svg" width="72" height="72" style={{ borderRadius: 20, boxShadow: "0 10px 30px rgba(91,164,207,.3)", marginBottom: 16 }} alt="Olfah" />
+              <div style={{ fontSize: 25, fontWeight: 700, color: "#1e2d3d", marginBottom: 12 }}>{t.onbHero}</div>
+              <div style={{ fontSize: 15, color: "#5a7183", lineHeight: 1.75, maxWidth: 320, margin: "0 auto" }}>{t.onbWelcomeLine}</div>
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 12, textAlign: "center" }}>{t.onbLangQ}</div>
             <div style={{ display: "flex", gap: 12 }}>
@@ -756,8 +791,51 @@ export default function Olfah() {
             </div>
           </>}
 
-          {/* Step 1 — baby basics */}
+          {/* Step 1 — you're not alone */}
           {step === 1 && <>
+            <div style={{ textAlign: "center", marginBottom: 22, marginTop: 8 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🤍</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#1e2d3d", marginBottom: 12 }}>{t.onbNotAloneTitle}</div>
+              <div style={{ fontSize: 15, color: "#5a7183", lineHeight: 1.75, maxWidth: 330, margin: "0 auto" }}>{t.onbNotAlone}</div>
+            </div>
+            {/* real solidarity, not a scary stat */}
+            <div style={{ background: "white", borderRadius: 18, padding: "16px", border: "1px solid #e4ecf2", boxShadow: "0 4px 18px rgba(91,164,207,.1)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: `linear-gradient(135deg,${PL},${P}44)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: PD }}>{solidarityPost.name.charAt(0)}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1e2d3d" }}>{solidarityPost.name}</div>
+                  <div style={{ fontSize: 9, background: PL, color: PD, padding: "2px 8px", borderRadius: 10, fontWeight: 500, display: "inline-block", marginTop: 2 }}>{solidarityPost.badge}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: "#2d3f4f", lineHeight: 1.65, marginBottom: 10 }}>{solidarityPost.text}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: PD, fontWeight: 600 }}>
+                {IC.heart(PD, true)} {solidarityPost.replies.length + 46} {t.onbNotAloneFoot}
+              </div>
+            </div>
+          </>}
+
+          {/* Step 2 — why Olfah is for you */}
+          {step === 2 && <>
+            <div style={{ textAlign: "center", marginBottom: 26, marginTop: 8 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>💛</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbWhyTitle}</div>
+              <div style={{ fontSize: 13, color: "#99aab5" }}>{t.onbWhySub}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {t.onbWhy.map((w, i) => (
+                <div key={i} className="fade-up" style={{ display: "flex", alignItems: "center", gap: 14, background: "white", borderRadius: 16, padding: "16px", border: "1px solid #e4ecf2", boxShadow: "0 2px 10px rgba(0,0,0,.04)", animationDelay: `${i * 0.08}s`, textAlign: rtl ? "right" : "left" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 14, background: PL, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>{["👶", "🗣️", "🌸"][i]}</div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1e2d3d", marginBottom: 2 }}>{w.t}</div>
+                    <div style={{ fontSize: 12, color: "#7a8d9e", lineHeight: 1.5 }}>{w.s}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>}
+
+          {/* Step 3 — baby basics */}
+          {step === 3 && <>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <div style={{ fontSize: 40, marginBottom: 10 }}>👶</div>
               <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbBabyTitle}</div>
@@ -766,12 +844,13 @@ export default function Olfah() {
 
             <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.onbName}</div>
             <input value={onb.name} onChange={e => setOnb(o => ({ ...o, name: e.target.value }))} placeholder={t.onbNamePH}
-              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.name ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, marginBottom: 20, outline: "none", direction: dir, textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)" }} />
+              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.name ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, marginBottom: 20, outline: "none", direction: dir, textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)", width: "100%" }} />
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.onbDob} <span style={{ color: WARN }}>*</span></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 4 }}>{t.onbDob} <span style={{ color: WARN }}>*</span></div>
+            <div style={{ fontSize: 11, color: "#99aab5", marginBottom: 8 }}>{t.onbDobHelp}</div>
             <input type="date" value={onb.dob} max={dayKey(new Date())}
               onChange={e => setOnb(o => ({ ...o, dob: e.target.value }))}
-              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.dob ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, outline: "none", direction: "ltr", textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)" }} />
+              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.dob ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, outline: "none", direction: "ltr", textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)", width: "100%" }} />
             {previewW != null && (
               <div className="fade-up" style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "#EAF6EC", border: "1px solid #C8E6C9", fontSize: 13, color: "#2E7D32", fontWeight: 600, textAlign: "center" }}>
                 {t.onbAgePreview(onb.name?.trim(), previewW)}
@@ -786,8 +865,8 @@ export default function Olfah() {
             </div>
           </>}
 
-          {/* Step 2 — feeding */}
-          {step === 2 && <>
+          {/* Step 4 — feeding */}
+          {step === 4 && <>
             <div style={{ textAlign: "center", marginBottom: 26 }}>
               <div style={{ fontSize: 40, marginBottom: 10 }}>🍼</div>
               <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbFeedTitle}</div>
@@ -800,8 +879,8 @@ export default function Olfah() {
             </div>
           </>}
 
-          {/* Step 3 — about mother */}
-          {step === 3 && <>
+          {/* Step 5 — about mother */}
+          {step === 5 && <>
             <div style={{ textAlign: "center", marginBottom: 26 }}>
               <div style={{ fontSize: 40, marginBottom: 10 }}>🌸</div>
               <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbYouTitle}</div>
@@ -820,12 +899,21 @@ export default function Olfah() {
               ))}
             </div>
           </>}
+
+          {/* Step 6 — personalized payoff */}
+          {isPayoff && <>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+              <div className="fade-up" style={{ width: 84, height: 84, borderRadius: "50%", background: PG, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, marginBottom: 22, boxShadow: "0 10px 30px rgba(91,164,207,.35)" }}>🌱</div>
+              <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 14, lineHeight: 1.4 }}>{t.onbPayoffTitle(onb.name?.trim(), previewW || 0)}</div>
+              <div style={{ fontSize: 15, color: "#5a7183", lineHeight: 1.8, maxWidth: 330 }}>{t.onbPayoffBody}</div>
+            </div>
+          </>}
         </div>
 
         {/* footer */}
         <div style={{ padding: "12px 24px env(safe-area-inset-bottom,24px)", background: "transparent" }}>
           <Btn full onClick={advance} disabled={!canNext}>
-            {step === ONB_STEPS - 1 ? t.start : t.onbNext}
+            {isPayoff ? t.start : t.onbNext}
           </Btn>
         </div>
       </div>
