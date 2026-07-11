@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import {
   getProfile, saveProfile, hasProfile, saveBabyLog, saveMotherLog,
   recentBabyLogs, recentMotherLogs, recentJournalEntries, addJournalEntry,
-  addEscalationEvent, loggedDayCount, deleteAll,
+  addEscalationEvent, loggedDayCount, deleteAll, exportAll,
 } from "./lib/store.js";
 import { evaluateText, evaluateBabyLog, evaluateMotherLog } from "./lib/safety.js";
 import { assembleContext } from "./lib/context.js";
 import { checkinForDay, CHECKIN_RESPONSES } from "./lib/checkins.js";
-import { ageWeeks, correctedAgeWeeks, dayKey } from "./lib/dates.js";
+import { ageWeeks, correctedAgeWeeks, ageLabel, dayKey } from "./lib/dates.js";
 
 const P = "#5BA4CF", PD = "#3D8AB8", PL = "#E8F4FA";
 const PG = "linear-gradient(135deg,#5BA4CF,#7BB8D9)";
@@ -214,6 +214,14 @@ const T = {
     onbPayoffTitle: (n, w) => `مضى على ولادة ${n || "صغيرك"} ${w} ${w === 1 ? "أسبوع" : "أسابيع"} 🌱`,
     onbPayoffBody: "سأتذكّر كل ما تسجّلينه من نوم ورضعات وكيف حالكِ أنتِ. وحين تسألينني شيئاً في الثالثة فجراً، أعرف قصتك مسبقاً.",
     escTitle: "تنبيه مهم", escSeeDoc: "تواصلي مع طبيب الآن",
+    pTitle: "حسابي", pBaby: "طفلك", pMother: "أنتِ", pLang: "اللغة",
+    pFeedingLabel: "الرضاعة", pDeliveryLabel: "الولادة", pFirstLabel: "أول طفل",
+    pData: "بياناتك", pDataSub: "بياناتك ملكك وحدك، محفوظة على جهازك.",
+    pExport: "تصدير بياناتي", pDelete: "حذف كل بياناتي والبدء من جديد",
+    pDeleteConfirm: "متأكدة؟ سيُحذف كل شيء نهائياً", pDeleteYes: "نعم، احذفي كل شيء", pCancel: "إلغاء",
+    pFeedingVals: { breast: "طبيعية", formula: "صناعية", mixed: "مختلطة" },
+    pDeliveryVals: { vaginal: "طبيعية", "c-section": "قيصرية" },
+    pYes: "نعم", pNo: "لا", pNotSet: "غير محدد",
     jWellbeingPH: "قلق، لحظة جميلة، أو بس كيف تحسين...",
     jStepNames: ["كيف حالك؟", "نومك", "الرضاعة", "طفلك اليوم", "أنتِ"],
     jStepSubs: ["كوني صريحة مع نفسك", "نومك مهم بقدر نوم طفلك", "سجّلي ما تيسّر", "كيف كان طفلك؟", "هل في شيء على بالك؟"],
@@ -306,6 +314,14 @@ const T = {
     onbPayoffTitle: (n, w) => `${n || "Your baby"} is ${w} ${w === 1 ? "week" : "weeks"} old 🌱`,
     onbPayoffBody: "I'll remember everything you log — sleep, feeds, and how you're doing. So when you ask me something at 3am, I already know your story.",
     escTitle: "Important", escSeeDoc: "Connect to a doctor now",
+    pTitle: "Profile", pBaby: "Your baby", pMother: "You", pLang: "Language",
+    pFeedingLabel: "Feeding", pDeliveryLabel: "Delivery", pFirstLabel: "First baby",
+    pData: "Your data", pDataSub: "Your data is yours alone, stored on your device.",
+    pExport: "Export my data", pDelete: "Delete all my data & start over",
+    pDeleteConfirm: "Sure? This permanently erases everything", pDeleteYes: "Yes, delete everything", pCancel: "Cancel",
+    pFeedingVals: { breast: "Breast", formula: "Formula", mixed: "Mixed" },
+    pDeliveryVals: { vaginal: "Vaginal", "c-section": "C-section" },
+    pYes: "Yes", pNo: "No", pNotSet: "Not set",
     jWellbeingPH: "A worry, a win, or just how you're feeling...",
     jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
     jStepSubs: ["Be honest with yourself", "Your rest matters too", "Log what you can", "How was your little one?", "Anything on your mind?"],
@@ -430,7 +446,7 @@ const IC = {
   back: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1e2d3d" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>,
 };
 
-const S = { SPLASH: 0, ONBOARD: 1, HOME: 2, CHAT: 3, DOC: 4, COMMUNITY: 5, JOURNAL: 6 };
+const S = { SPLASH: 0, ONBOARD: 1, HOME: 2, CHAT: 3, DOC: 4, COMMUNITY: 5, JOURNAL: 6, PROFILE: 7 };
 
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
@@ -477,6 +493,7 @@ export default function Olfah() {
   const [chatEsc, setChatEsc] = useState(null); // T1 template that overrides the chat answer
   const [profile, setProfile] = useState(null);
   const [onb, setOnb] = useState({ step: 0, name: "", sex: "", dob: "", feedingIdx: -1, deliveryIdx: -1, firstBaby: null });
+  const [confirmDel, setConfirmDel] = useState(false);
   const checkin = checkinForDay();
   const [posts, setPosts] = useState([]);
   const [likedPosts, setLikedPosts] = useState({});
@@ -643,6 +660,21 @@ export default function Olfah() {
   const goChat = () => { setScr(S.CHAT); setMsgs([]); setSuggestions([]); setEsc(false); setChatEsc(null); setTimeout(() => inRef.current?.focus(), 300); };
   const goHome = () => setScr(S.HOME);
 
+  // §9 privacy: one-tap export + hard delete
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(exportAll(), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `olfah-data-${dayKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const deleteData = () => {
+    deleteAll();                 // hard delete + cached-context purge
+    try { localStorage.clear(); } catch {}
+    location.reload();           // clean state → splash → onboarding
+  };
+
   const Nav = ({ active }) => (
     <div style={{ display: "flex", justifyContent: "space-around", padding: "10px 0 env(safe-area-inset-bottom,16px)", borderTop: "1px solid #e4ecf2", background: "white", position: "sticky", bottom: 0, zIndex: 10 }}>
       {[
@@ -650,7 +682,7 @@ export default function Olfah() {
         { icon: IC.chat, label: t.chat, key: "chat", action: goChat },
         { icon: IC.users, label: t.community, key: "community", action: () => setScr(S.COMMUNITY) },
         { icon: IC.cal, label: t.journal, key: "journal", action: () => { setJStep(0); setScr(S.JOURNAL); } },
-        { icon: IC.user, label: t.profile, key: "profile", action: () => {} },
+        { icon: IC.user, label: t.profile, key: "profile", action: () => setScr(S.PROFILE) },
       ].map(tab => (
         <button key={tab.key} onClick={tab.action} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", padding: "4px 8px" }}>
           {tab.icon(active === tab.key ? P : "#99aab5")}
@@ -1532,6 +1564,65 @@ export default function Olfah() {
             </button>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // ─── PROFILE / DATA (§9) ───
+  if (scr === S.PROFILE) {
+    const prof = getProfile();
+    const b = prof.baby, m = prof.mother;
+    const ageStr = b.dob ? ageLabel(b.dob, b.gestational_age_weeks, lang) : t.pNotSet;
+    const row = (label, value) => (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #f0f4f8" }}>
+        <span style={{ fontSize: 13, color: "#7a8d9e" }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#1e2d3d" }}>{value || t.pNotSet}</span>
+      </div>
+    );
+    const card = (title, children) => (
+      <div style={{ background: "white", borderRadius: 16, padding: "6px 16px 12px", marginBottom: 16, border: "1px solid #e4ecf2", boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: PD, padding: "12px 0 4px" }}>{title}</div>
+        {children}
+      </div>
+    );
+    return (
+      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
+        <style>{css}</style>
+        <Header title={t.pTitle} onBack={goHome} />
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 18px 24px" }}>
+          {card(t.pBaby, <>
+            {row(t.onbName.replace(" (optional)", "").replace(" (اختياري)", ""), b.name)}
+            {row(t.ageLabel, ageStr)}
+            {row(t.pFeedingLabel, t.pFeedingVals[b.feeding_method])}
+          </>)}
+          {card(t.pMother, <>
+            {row(t.pDeliveryLabel, t.pDeliveryVals[m.delivery_type])}
+            {row(t.pFirstLabel, m.first_baby == null ? t.pNotSet : m.first_baby ? t.pYes : t.pNo)}
+            {row(t.pLang, lang === "ar" ? "العربية" : "English")}
+          </>)}
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#7a8d9e", margin: "8px 4px 6px" }}>{t.pData}</div>
+          <div style={{ fontSize: 12, color: "#99aab5", margin: "0 4px 14px", lineHeight: 1.6 }}>{t.pDataSub}</div>
+
+          <Btn full variant="outline" onClick={exportData} style={{ marginBottom: 12 }}>{t.pExport}</Btn>
+
+          {!confirmDel ? (
+            <button onClick={() => setConfirmDel(true)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "1.5px solid #F5B7B1", background: "white", color: "#C0392B", fontSize: 14, fontWeight: 600, fontFamily: ff }}>
+              {t.pDelete}
+            </button>
+          ) : (
+            <div className="fade-up" style={{ background: "#FDECEA", borderRadius: 16, padding: "16px", border: "2px solid #F5B7B1" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#B71C1C", marginBottom: 12, textAlign: "center" }}>{t.pDeleteConfirm}</div>
+              <button onClick={deleteData} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#C62828", color: "white", fontSize: 14, fontWeight: 700, fontFamily: ff, marginBottom: 8 }}>
+                {t.pDeleteYes}
+              </button>
+              <button onClick={() => setConfirmDel(false)} style={{ width: "100%", padding: "10px", background: "none", border: "none", color: "#7a8d9e", fontSize: 13, fontFamily: ff }}>
+                {t.pCancel}
+              </button>
+            </div>
+          )}
+        </div>
+        <Nav active="profile" />
       </div>
     );
   }
