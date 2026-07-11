@@ -119,7 +119,7 @@ Never say "I'm just an AI". Never end with disclaimers.`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-5",
         max_tokens: 800,
         system: sys,
         messages: msgs.map(m => ({ role: m.from === "user" ? "user" : "assistant", content: m.text })),
@@ -186,8 +186,19 @@ const T = {
     jCheckinLabel: "لحظة صغيرة معكِ", jNext: "التالي",
     onbDob: "تاريخ ميلاد الطفل", onbDobHelp: "يحدّد عمر طفلك بالأسابيع, أهم معلومة",
     onbFeeding: "كيف ترضعين طفلك؟", onbFeedingOpts: ["طبيعية", "صناعية", "الاثنين"],
+    onbFeedingIcons: ["🤱", "🍼", "🔄"],
     onbDelivery: "نوع الولادة؟", onbDeliveryOpts: ["طبيعية", "قيصرية"],
     onbFirst: "هل هذا طفلك الأول؟", onbYes: "نعم", onbNo: "لا",
+    onbHero: "أهلاً بكِ في ألفة", onbHeroSub: "رفيقتك في رحلة الأمومة, بخطوتين نجهّز كل شيء لكِ ولطفلك.",
+    onbLangQ: "بأي لغة تحبين نتكلم؟",
+    onbBabyTitle: "حدثينا عن صغيرك", onbBabySub: "نبدأ بالأساسيات",
+    onbName: "اسم الطفل (اختياري)", onbNamePH: "مثال: سارة",
+    onbSex: "ولد أم بنت؟ (اختياري)", onbSexOpts: ["ولد", "بنت"],
+    onbFeedTitle: "كيف تسير الرضاعة؟", onbFeedSub: "لنقدّم لكِ النصيحة المناسبة",
+    onbYouTitle: "والآن قليلاً عنكِ", onbYouSub: "حتى نهتم بكِ أنتِ أيضاً",
+    onbSkip: "تخطي", onbNext: "التالي", onbBack: "السابق",
+    onbAgePreview: (n, w) => `${n || "طفلك"} عمره ${w} ${w === 1 ? "أسبوع" : "أسابيع"} 🌱`,
+    onbDone: "كل شيء جاهز 💛",
     escTitle: "تنبيه مهم", escSeeDoc: "تواصلي مع طبيب الآن",
     jWellbeingPH: "قلق، لحظة جميلة، أو بس كيف تحسين...",
     jStepNames: ["كيف حالك؟", "نومك", "الرضاعة", "طفلك اليوم", "أنتِ"],
@@ -253,8 +264,19 @@ const T = {
     jCheckinLabel: "A small moment for you", jNext: "Next",
     onbDob: "Baby's date of birth", onbDobHelp: "Sets your baby's age in weeks — the single most important detail",
     onbFeeding: "How do you feed your baby?", onbFeedingOpts: ["Breast", "Formula", "Both"],
+    onbFeedingIcons: ["🤱", "🍼", "🔄"],
     onbDelivery: "Delivery type?", onbDeliveryOpts: ["Vaginal", "C-section"],
     onbFirst: "Is this your first baby?", onbYes: "Yes", onbNo: "No",
+    onbHero: "Welcome to Olfah", onbHeroSub: "Your companion through motherhood. Two quick steps and we're ready for you and your baby.",
+    onbLangQ: "Which language feels like home?",
+    onbBabyTitle: "Tell us about your little one", onbBabySub: "Just the basics to start",
+    onbName: "Baby's name (optional)", onbNamePH: "e.g. Sara",
+    onbSex: "Boy or girl? (optional)", onbSexOpts: ["Boy", "Girl"],
+    onbFeedTitle: "How's feeding going?", onbFeedSub: "So we tailor the advice to you",
+    onbYouTitle: "Now, a little about you", onbYouSub: "So we can care for you too",
+    onbSkip: "Skip", onbNext: "Continue", onbBack: "Back",
+    onbAgePreview: (n, w) => `${n || "Baby"} is ${w} ${w === 1 ? "week" : "weeks"} old 🌱`,
+    onbDone: "You're all set 💛",
     escTitle: "Important", escSeeDoc: "Connect to a doctor now",
     jWellbeingPH: "A worry, a win, or just how you're feeling...",
     jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
@@ -426,7 +448,7 @@ export default function Olfah() {
   const [jEsc, setJEsc] = useState([]);   // hardcoded escalations from journal save (§6.9)
   const [chatEsc, setChatEsc] = useState(null); // T1 template that overrides the chat answer
   const [profile, setProfile] = useState(null);
-  const [onb, setOnb] = useState({ dob: "", feedingIdx: -1, deliveryIdx: -1, firstBaby: null });
+  const [onb, setOnb] = useState({ step: 0, name: "", sex: "", dob: "", feedingIdx: -1, deliveryIdx: -1, firstBaby: null });
   const checkin = checkinForDay();
   const [posts, setPosts] = useState([]);
   const [likedPosts, setLikedPosts] = useState({});
@@ -481,10 +503,12 @@ export default function Olfah() {
     }
   }, [scr]);
 
-  const saveOnboard = ({ dob, feedingIdx, deliveryIdx, firstBaby }, l) => {
+  const saveOnboard = ({ dob, name, sex, feedingIdx, deliveryIdx, firstBaby }, l) => {
     const saved = saveProfile({
       baby: {
         dob,
+        name: name?.trim() || "",
+        sex: sex || "",
         feeding_method: feedingIdx >= 0 ? FEEDING_VALS[feedingIdx] : "mixed",
       },
       mother: {
@@ -674,57 +698,136 @@ export default function Olfah() {
     </div>
   );
 
-  // ─── ONBOARDING ───
+  // ─── ONBOARDING (warm, stepped, ≤2 min) ───
   if (scr === S.ONBOARD) {
-    const pill = (selected) => ({
-      padding: "10px 18px", borderRadius: 22, fontSize: 13, fontFamily: ff,
-      border: selected ? `2px solid ${P}` : "2px solid #d0dce5",
-      background: selected ? PL : "white", color: selected ? PD : "#3d5a73",
-      fontWeight: selected ? 600 : 400, transition: "all .15s",
-    });
+    const ONB_STEPS = 4;
+    const step = onb.step;
+    const setStep = (s) => setOnb(o => ({ ...o, step: s }));
+    const previewW = onb.dob ? ageWeeks(onb.dob) : null;
+
+    // selectable card (icon + label), scales on select
+    const Card = ({ selected, onClick, icon, label, sub, wide }) => (
+      <button onClick={onClick} style={{
+        flex: wide ? "1 1 100%" : 1, minWidth: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", gap: 8, padding: "20px 12px", borderRadius: 20, fontFamily: ff,
+        border: `2px solid ${selected ? P : "#e4ecf2"}`, background: selected ? PL : "white",
+        boxShadow: selected ? `0 0 0 4px ${P}22, 0 6px 18px rgba(91,164,207,.18)` : "0 2px 10px rgba(0,0,0,.04)",
+        transform: selected ? "translateY(-2px)" : "none", transition: "all .18s cubic-bezier(.25,.46,.45,.94)",
+      }}>
+        {icon && <span style={{ fontSize: 30 }}>{icon}</span>}
+        <span style={{ fontSize: 14, fontWeight: selected ? 700 : 500, color: selected ? PD : "#3d5a73" }}>{label}</span>
+        {sub && <span style={{ fontSize: 11, color: "#99aab5" }}>{sub}</span>}
+      </button>
+    );
+
+    const canNext = step === 1 ? !!onb.dob : true;   // DOB is the only gate
+    const optional = step === 2 || step === 3;
+    const advance = () => { if (step < ONB_STEPS - 1) setStep(step + 1); else saveOnboard(onb, lang); };
+
     return (
-      <div className="screen-in" style={{ minHeight: "100vh", background: BG, display: "flex", flexDirection: "column", padding: "40px 24px 30px", direction: dir, fontFamily: ff, overflowY: "auto" }}>
+      <div className="screen-in" style={{ minHeight: "100vh", background: "linear-gradient(180deg,#EAF4FB 0%,#F8FBFD 42%)", display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
-        <div style={{ fontSize: 13, color: P, fontWeight: 600, marginBottom: 6 }}>{t.onboardTitle}</div>
-        <div style={{ fontSize: 26, fontWeight: 700, color: "#1e2d3d", lineHeight: 1.4, marginBottom: 6 }}>{t.onboardSub} 💛</div>
-        <div style={{ fontSize: 14, color: "#7a8d9e", marginBottom: 26 }}>{t.onboardHelp}</div>
 
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.langLabel}</div>
-        <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-          {[{ l: "ar", label: "العربية" }, { l: "en", label: "English" }].map(({ l, label }) => (
-            <button key={l} onClick={() => setLang(l)} style={pill(lang === l)}>{label}</button>
-          ))}
+        {/* top bar: back · progress dots · skip */}
+        <div style={{ padding: "16px 20px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40 }}>
+          <button onClick={() => step > 0 && setStep(step - 1)} style={{ background: "none", border: "none", padding: 0, width: 40, opacity: step > 0 ? 1 : 0, pointerEvents: step > 0 ? "auto" : "none" }}>{IC.back}</button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {Array.from({ length: ONB_STEPS }).map((_, i) => (
+              <div key={i} style={{ height: 6, borderRadius: 3, background: i <= step ? P : "#d3e2ee", width: i === step ? 22 : 6, transition: "all .3s ease" }} />
+            ))}
+          </div>
+          <button onClick={advance} style={{ background: "none", border: "none", fontSize: 12, color: "#a9bccb", fontFamily: ff, width: 40, textAlign: rtl ? "left" : "right", visibility: optional ? "visible" : "hidden" }}>{t.onbSkip}</button>
         </div>
 
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 6 }}>{t.onbDob} <span style={{ color: WARN }}>*</span></div>
-        <div style={{ fontSize: 11, color: "#99aab5", marginBottom: 10 }}>{t.onbDobHelp}</div>
-        <input type="date" value={onb.dob} max={dayKey(new Date())}
-          onChange={e => setOnb(o => ({ ...o, dob: e.target.value }))}
-          style={{ padding: "12px 16px", borderRadius: 14, border: `2px solid ${onb.dob ? P : "#d0dce5"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, marginBottom: 24, outline: "none", direction: "ltr", textAlign: rtl ? "right" : "left" }} />
+        <div key={step} className="fade-up" style={{ flex: 1, overflowY: "auto", padding: "20px 26px 12px", display: "flex", flexDirection: "column" }}>
 
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbFeeding}</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {t.onbFeedingOpts.map((label, i) => (
-            <button key={i} onClick={() => setOnb(o => ({ ...o, feedingIdx: i }))} style={pill(onb.feedingIdx === i)}>{label}</button>
-          ))}
+          {/* Step 0 — welcome + language */}
+          {step === 0 && <>
+            <div style={{ textAlign: "center", marginBottom: 30, marginTop: 12 }}>
+              <img src="/favicon.svg" width="76" height="76" style={{ borderRadius: 20, boxShadow: "0 10px 30px rgba(91,164,207,.3)", marginBottom: 18 }} alt="Olfah" />
+              <div style={{ fontSize: 25, fontWeight: 700, color: "#1e2d3d", marginBottom: 8 }}>{t.onbHero}</div>
+              <div style={{ fontSize: 14, color: "#7a8d9e", lineHeight: 1.6, maxWidth: 300, margin: "0 auto" }}>{t.onbHeroSub}</div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 12, textAlign: "center" }}>{t.onbLangQ}</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {[{ l: "ar", label: "العربية", sub: "Arabic", flag: "🇶🇦" }, { l: "en", label: "English", sub: "الإنجليزية", flag: "🌍" }].map(({ l, label, sub, flag }) => (
+                <Card key={l} selected={lang === l} onClick={() => setLang(l)} icon={flag} label={label} sub={sub} />
+              ))}
+            </div>
+          </>}
+
+          {/* Step 1 — baby basics */}
+          {step === 1 && <>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>👶</div>
+              <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbBabyTitle}</div>
+              <div style={{ fontSize: 13, color: "#99aab5" }}>{t.onbBabySub}</div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.onbName}</div>
+            <input value={onb.name} onChange={e => setOnb(o => ({ ...o, name: e.target.value }))} placeholder={t.onbNamePH}
+              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.name ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, marginBottom: 20, outline: "none", direction: dir, textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)" }} />
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.onbDob} <span style={{ color: WARN }}>*</span></div>
+            <input type="date" value={onb.dob} max={dayKey(new Date())}
+              onChange={e => setOnb(o => ({ ...o, dob: e.target.value }))}
+              style={{ padding: "14px 16px", borderRadius: 14, border: `2px solid ${onb.dob ? P : "#e4ecf2"}`, background: "white", fontSize: 15, color: "#1e2d3d", fontFamily: ff, outline: "none", direction: "ltr", textAlign: rtl ? "right" : "left", boxShadow: "0 2px 8px rgba(0,0,0,.03)" }} />
+            {previewW != null && (
+              <div className="fade-up" style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "#EAF6EC", border: "1px solid #C8E6C9", fontSize: 13, color: "#2E7D32", fontWeight: 600, textAlign: "center" }}>
+                {t.onbAgePreview(onb.name?.trim(), previewW)}
+              </div>
+            )}
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", margin: "22px 0 12px" }}>{t.onbSex}</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {t.onbSexOpts.map((label, i) => (
+                <Card key={i} selected={onb.sex === (i === 0 ? "M" : "F")} onClick={() => setOnb(o => ({ ...o, sex: i === 0 ? "M" : "F" }))} icon={i === 0 ? "👦" : "👧"} label={label} />
+              ))}
+            </div>
+          </>}
+
+          {/* Step 2 — feeding */}
+          {step === 2 && <>
+            <div style={{ textAlign: "center", marginBottom: 26 }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>🍼</div>
+              <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbFeedTitle}</div>
+              <div style={{ fontSize: 13, color: "#99aab5" }}>{t.onbFeedSub}</div>
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {t.onbFeedingOpts.map((label, i) => (
+                <Card key={i} selected={onb.feedingIdx === i} onClick={() => setOnb(o => ({ ...o, feedingIdx: i }))} icon={t.onbFeedingIcons[i]} label={label} />
+              ))}
+            </div>
+          </>}
+
+          {/* Step 3 — about mother */}
+          {step === 3 && <>
+            <div style={{ textAlign: "center", marginBottom: 26 }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>🌸</div>
+              <div style={{ fontSize: 21, fontWeight: 700, color: "#1e2d3d", marginBottom: 4 }}>{t.onbYouTitle}</div>
+              <div style={{ fontSize: 13, color: "#99aab5" }}>{t.onbYouSub}</div>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.onbDelivery}</div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+              {t.onbDeliveryOpts.map((label, i) => (
+                <Card key={i} selected={onb.deliveryIdx === i} onClick={() => setOnb(o => ({ ...o, deliveryIdx: i }))} icon={i === 0 ? "🌷" : "🩺"} label={label} />
+              ))}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.onbFirst}</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {[{ v: true, label: t.onbYes, icon: "💛" }, { v: false, label: t.onbNo, icon: "🤍" }].map(({ v, label, icon }) => (
+                <Card key={label} selected={onb.firstBaby === v} onClick={() => setOnb(o => ({ ...o, firstBaby: v }))} icon={icon} label={label} />
+              ))}
+            </div>
+          </>}
         </div>
 
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbDelivery}</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {t.onbDeliveryOpts.map((label, i) => (
-            <button key={i} onClick={() => setOnb(o => ({ ...o, deliveryIdx: i }))} style={pill(onb.deliveryIdx === i)}>{label}</button>
-          ))}
+        {/* footer */}
+        <div style={{ padding: "12px 24px env(safe-area-inset-bottom,24px)", background: "transparent" }}>
+          <Btn full onClick={advance} disabled={!canNext}>
+            {step === ONB_STEPS - 1 ? t.start : t.onbNext}
+          </Btn>
         </div>
-
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#3d5a73", marginBottom: 10 }}>{t.onbFirst}</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
-          {[{ v: true, label: t.onbYes }, { v: false, label: t.onbNo }].map(({ v, label }) => (
-            <button key={label} onClick={() => setOnb(o => ({ ...o, firstBaby: v }))} style={pill(onb.firstBaby === v)}>{label}</button>
-          ))}
-        </div>
-
-        <div style={{ flex: 1, minHeight: 20 }} />
-        <Btn full onClick={() => onb.dob && saveOnboard(onb, lang)} disabled={!onb.dob}>{t.start}</Btn>
       </div>
     );
   }
