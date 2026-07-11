@@ -126,7 +126,9 @@ Never say "I'm just an AI". Never end with disclaimers.`;
       }),
     });
     const d = await r.json();
-    const txt = d.content?.[0]?.text || "Sorry, please try again.";
+    // Anthropic returns an array of content blocks; sonnet-5 can emit a
+    // "thinking" block before the "text" one — pick the text block, not [0].
+    const txt = d.content?.find(c => c.type === "text")?.text || "Sorry, please try again.";
     const esc = txt.includes("[ESCALATE]");
     return { text: txt.replace(/\[ESCALATE\]/g, "").trim(), escalate: esc };
   } catch {
