@@ -13,7 +13,6 @@ const STAGE_CONFIG = {
   D: { show: ["feed_types", "solids", "food_reactions", "night_wakings", "milestones", "fussiness", "health_flags", "mood", "sleep_hours", "work_return", "received_help", "checkin"] },
   E: { show: ["mood", "fussiness", "health_flags", "checkin"] },
 };
-
 // Postpartum-only fields collapse after their clinical window regardless of
 // baby stage.
 function ppOverride(fields, ppWeek) {
