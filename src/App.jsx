@@ -7,6 +7,7 @@ import {
 import { evaluateText, evaluateBabyLog, evaluateMotherLog } from "./lib/safety.js";
 import { assembleContext } from "./lib/context.js";
 import { checkinForDay, CHECKIN_RESPONSES } from "./lib/checkins.js";
+import { stageConfig } from "./lib/staging.js";
 import { ageWeeks, correctedAgeWeeks, ageLabel, dayKey } from "./lib/dates.js";
 
 const P = "#5BA4CF", PD = "#3D8AB8", PL = "#E8F4FA";
@@ -186,6 +187,9 @@ const T = {
     jPain: "هل تشعرين بألم اليوم؟", jPainU: "الألم",
     jBfPain: "ألم في الرضاعة؟", jSupply: "قلق من كمية الحليب؟",
     jCheckinLabel: "لحظة صغيرة معكِ", jNext: "التالي",
+    jSleepChips: ["أقل من 3", "3-5", "5-7", "7+"], jNotesTitle: "أي شيء على بالك؟",
+    jDiapersTitle: "الحفاضات اليوم", jBfTitle: "الرضاعة الطبيعية", jFeedConcernsTitle: "أي قلق في الرضاعة؟",
+    jTapHint: "اختاري للمتابعة",
     onbDob: "تاريخ ميلاد الطفل", onbDobHelp: "يحدّد عمر طفلك بالأسابيع, أهم معلومة",
     onbFeeding: "كيف ترضعين طفلك؟", onbFeedingOpts: ["طبيعية", "صناعية", "الاثنين"],
     onbFeedingIcons: ["🤱", "🍼", "🔄"],
@@ -286,10 +290,13 @@ const T = {
     jPain: "Pain today?", jPainU: "Pain",
     jBfPain: "Breastfeeding pain?", jSupply: "Supply worries?",
     jCheckinLabel: "A small moment for you", jNext: "Next",
+    jSleepChips: ["< 3h", "3-5h", "5-7h", "7h+"], jNotesTitle: "Anything on your mind?",
+    jDiapersTitle: "Diapers today", jBfTitle: "Breastfeeding", jFeedConcernsTitle: "Any feeding concerns?",
+    jTapHint: "Tap to continue",
     onbDob: "Baby's date of birth", onbDobHelp: "Sets your baby's age in weeks — the single most important detail",
     onbFeeding: "How do you feed your baby?", onbFeedingOpts: ["Breast", "Formula", "Both"],
     onbFeedingIcons: ["🤱", "🍼", "🔄"],
-    onbDelivery: "Delivery type?", onbDeliveryOpts: ["Vaginal", "C-section"],
+    onbDelivery: "Delivery type?", onbDeliveryOpts: ["Natural", "C-section"],
     onbFirst: "Is this your first baby?", onbYes: "Yes", onbNo: "No",
     onbHero: "Welcome to Olfah", onbHeroSub: "Your companion through motherhood. Two quick steps and we're ready for you and your baby.",
     onbLangQ: "Which language feels like home?",
@@ -322,7 +329,7 @@ const T = {
     pExport: "Export my data", pDelete: "Delete all my data & start over",
     pDeleteConfirm: "Sure? This permanently erases everything", pDeleteYes: "Yes, delete everything", pCancel: "Cancel",
     pFeedingVals: { breast: "Breast", formula: "Formula", mixed: "Mixed" },
-    pDeliveryVals: { vaginal: "Vaginal", "c-section": "C-section" },
+    pDeliveryVals: { vaginal: "Natural", "c-section": "C-section" },
     pYes: "Yes", pNo: "No", pNotSet: "Not set",
     jWellbeingPH: "A worry, a win, or just how you're feeling...",
     jStepNames: ["How are you?", "Your sleep", "Feeding", "Baby today", "Just you"],
@@ -662,6 +669,20 @@ export default function Olfah() {
   const goChat = () => { setScr(S.CHAT); setMsgs([]); setSuggestions([]); setEsc(false); setChatEsc(null); setTimeout(() => inRef.current?.focus(), 300); };
   const goHome = () => setScr(S.HOME);
 
+  // Open the daily journal, pre-filling steppers from the most recent day so
+  // most days are edit-not-enter (§10.3). Moods/symptoms reset each day.
+  const openJournal = () => {
+    const lb = recentBabyLogs(1)[0];
+    if (lb) setJData(d => ({
+      ...d,
+      feeds: lb.feeds_count ?? d.feeds,
+      naps: lb.naps_count ?? d.naps,
+      wet: lb.wet_diapers ?? d.wet,
+      dirty: lb.dirty_diapers ?? d.dirty,
+    }));
+    setJStep(0); setScr(S.JOURNAL);
+  };
+
   // §9 privacy: one-tap export + hard delete
   const exportData = () => {
     const blob = new Blob([JSON.stringify(exportAll(), null, 2)], { type: "application/json" });
@@ -683,7 +704,7 @@ export default function Olfah() {
         { icon: IC.home, label: t.home, key: "home", action: goHome },
         { icon: IC.chat, label: t.chat, key: "chat", action: goChat },
         { icon: IC.users, label: t.community, key: "community", action: () => setScr(S.COMMUNITY) },
-        { icon: IC.cal, label: t.journal, key: "journal", action: () => { setJStep(0); setScr(S.JOURNAL); } },
+        { icon: IC.cal, label: t.journal, key: "journal", action: openJournal },
         { icon: IC.user, label: t.profile, key: "profile", action: () => setScr(S.PROFILE) },
       ].map(tab => (
         <button key={tab.key} onClick={tab.action} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", padding: "4px 8px" }}>
@@ -967,7 +988,7 @@ export default function Olfah() {
       </div>
 
       {!jDone && (
-        <div onClick={() => { setJStep(0); setScr(S.JOURNAL); }} className="fade-up" style={{ margin: "0 18px 14px", padding: "14px 16px", borderRadius: 16, background: "linear-gradient(135deg,#EDF5FA,#D6E8F3)", border: `1.5px solid ${P}33`, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+        <div onClick={openJournal} className="fade-up" style={{ margin: "0 18px 14px", padding: "14px 16px", borderRadius: 16, background: "linear-gradient(135deg,#EDF5FA,#D6E8F3)", border: `1.5px solid ${P}33`, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, background: PG, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{IC.doc("white")}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#1e2d3d" }}>{t.jTitle}</div>
@@ -995,7 +1016,7 @@ export default function Olfah() {
           {[
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#E3F2FD,#BBDEFB)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.steth("#1565C0", 20)}</div>, label: t.findDoc, sub: t.docSub, action: () => setScr(S.DOC) },
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#FCE4EC,#F8BBD0)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.users("#C2185B")}</div>, label: t.comLabel, sub: t.comSub, action: () => setScr(S.COMMUNITY) },
-            { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#E8F5E9,#C8E6C9)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.cal("#2E7D32")}</div>, label: t.trackerLabel, sub: t.trackerSub, action: () => { setJStep(0); setScr(S.JOURNAL); } },
+            { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#E8F5E9,#C8E6C9)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.cal("#2E7D32")}</div>, label: t.trackerLabel, sub: t.trackerSub, action: openJournal },
             { icon: () => <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#FFF3E0,#FFE0B2)", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.pin("#E65100")}</div>, label: t.nearLabel, sub: t.nearSub, action: () => {} },
           ].map(item => (
             <button key={item.label} onClick={item.action} style={{ background: "white", borderRadius: 14, padding: "14px", border: "1px solid #dde8f0", textAlign: rtl ? "right" : "left", fontFamily: ff }}>
@@ -1028,7 +1049,7 @@ export default function Olfah() {
             </div>
           </div>
         ) : (
-          <div onClick={() => { setJStep(0); setScr(S.JOURNAL); }} style={{ background: "white", borderRadius: 14, padding: "14px", border: "1.5px dashed #c0d0dd", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <div onClick={openJournal} style={{ background: "white", borderRadius: 14, padding: "14px", border: "1.5px dashed #c0d0dd", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
             <div style={{ width: 34, height: 34, borderRadius: 10, background: "#f0f4f8", display: "flex", alignItems: "center", justifyContent: "center" }}>{IC.plus("#7a8d9e")}</div>
             <div style={{ flex: 1, fontSize: 11, color: "#7a8d9e", fontFamily: ff }}>{t.noLog}</div>
             <span style={{ color: P }}>{rtl ? "←" : "→"}</span>
@@ -1262,16 +1283,7 @@ export default function Olfah() {
 
   // ─── JOURNAL ───
   if (scr === S.JOURNAL) {
-    const STEPS = 5;
     const JBG = "#F4F8FB";
-    const sleepQuality = () => {
-      if (jData.sleep <= 2) return { label: lang === "ar" ? "صعب جداً 😮‍💨" : "Really rough 😮‍💨", color: WARN };
-      if (jData.sleep <= 4) return { label: lang === "ar" ? "مرهقة جداً" : "Very tired", color: WARN };
-      if (jData.sleep <= 6) return { label: lang === "ar" ? "قليل شوي" : "A bit short", color: "#F9A825" };
-      if (jData.sleep <= 8) return { label: lang === "ar" ? "مقبول" : "Decent", color: OK };
-      return { label: lang === "ar" ? "ممتاز! 🌟" : "Great! 🌟", color: OK };
-    };
-    const sq = sleepQuality();
 
     if (jDone && jStep === 0) return (
       <div className="screen-in" style={{ minHeight: "100vh", background: JBG, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 28px", direction: dir, fontFamily: ff }}>
@@ -1312,256 +1324,189 @@ export default function Olfah() {
       </div>
     );
 
+    // ── Adaptive, one-question-per-screen flow (§6.5, §10) ──
+    const cfg = stageConfig(getProfile());
+    const has = (f) => cfg.show.includes(f);
+
+    // shared renderers
+    const emojiScale = (emojis, labels, key) => (
+      <div style={{ display: "flex", gap: 8 }}>
+        {emojis.map((e, i) => (
+          <button key={i} onClick={() => auto({ [key]: i })} style={{
+            flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "18px 4px", borderRadius: 20,
+            border: `2px solid ${jData[key] === i ? P : "#e4ecf2"}`, background: jData[key] === i ? PL : "white",
+            boxShadow: jData[key] === i ? `0 0 0 4px ${P}28` : "0 2px 8px rgba(0,0,0,.04)",
+            transform: jData[key] === i ? "scale(1.06)" : "scale(1)", transition: "all .18s", fontFamily: ff,
+          }}>
+            <span style={{ fontSize: 32 }}>{e}</span>
+            <span style={{ fontSize: 9, color: jData[key] === i ? PD : "#99aab5", fontWeight: 600, textAlign: "center" }}>{labels[i]}</span>
+          </button>
+        ))}
+      </div>
+    );
+    const singleChips = (options, key, opts = {}) => (
+      <div style={{ display: "grid", gridTemplateColumns: opts.oneCol ? "1fr" : "1fr 1fr", gap: 10 }}>
+        {options.map((opt, i) => {
+          const on = jData[key] === i;
+          const c = opts.warn ? WARN : P;
+          return (
+            <button key={i} onClick={() => auto({ [key]: i })} style={{
+              padding: "18px 12px", borderRadius: 16, textAlign: "center", fontFamily: ff,
+              border: `2px solid ${on ? c : "#e4ecf2"}`, background: on ? (opts.warn ? "#FFF3E0" : PL) : "white",
+              boxShadow: on ? `0 0 0 3px ${c}22` : "0 1px 4px rgba(0,0,0,.04)",
+              fontSize: 13, fontWeight: on ? 600 : 400, color: on ? (opts.warn ? WARN : PD) : "#3d5a73", transition: "all .15s",
+            }}>{opt}</button>
+          );
+        })}
+      </div>
+    );
+    const multiChips = (items, key, warn) => (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+        {items.map((item, i) => {
+          const on = jData[key]?.includes(i);
+          const c = warn ? WARN : P;
+          return (
+            <button key={i} onClick={() => setJData(d => ({ ...d, [key]: on ? d[key].filter(x => x !== i) : [...(d[key] || []), i] }))}
+              style={{ padding: "11px 18px", borderRadius: 22, border: `2px solid ${on ? c : "#d0dce5"}`, background: on ? (warn ? "#FFF3E0" : PL) : "white", color: on ? (warn ? WARN : PD) : "#7a8d9e", fontSize: 13, fontWeight: on ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>
+              {on ? (warn ? "⚠ " : "✓ ") : ""}{item}
+            </button>
+          );
+        })}
+      </div>
+    );
+
+    // Build the active question list — staging decides what's relevant.
+    const Q = [];
+    if (has("mood")) Q.push({ icon: "🌸", name: t.jMood, sub: t.jTapHint, auto: true, body: () => emojiScale(t.jMoods, t.jMoodL, "mood") });
+    if (has("sleep_hours")) Q.push({ icon: "🌙", name: t.jSleep, sub: t.jTapHint, auto: true, body: () => (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {t.jSleepChips.map((opt, i) => {
+          const val = [2, 4, 6, 8][i]; const on = jData.sleep === val;
+          return <button key={i} onClick={() => auto({ sleep: val })} style={{ padding: "20px 12px", borderRadius: 16, fontFamily: ff, border: `2px solid ${on ? P : "#e4ecf2"}`, background: on ? PL : "white", boxShadow: on ? `0 0 0 3px ${P}22` : "0 1px 4px rgba(0,0,0,.04)", fontSize: 15, fontWeight: on ? 700 : 500, color: on ? PD : "#3d5a73" }}>{opt}</button>;
+        })}
+      </div>
+    ) });
+    if (has("night_wakings")) Q.push({ icon: "🌒", name: t.jNightWakes, sub: t.jTapHint, auto: true, body: () => singleChips(t.jWakeOpts, "nightWakes") });
+    if (has("naps_count")) Q.push({ icon: "😴", name: t.jNaps, body: () => (
+      <Stepper label="" unit={t.jNapsU} value={jData.naps}
+        onDec={() => setJData(d => ({ ...d, naps: Math.max(0, d.naps - 1) }))}
+        onInc={() => setJData(d => ({ ...d, naps: Math.min(8, d.naps + 1) }))} />
+    ) });
+    if (has("longest_sleep")) Q.push({ icon: "⏱️", name: t.jLongest, sub: t.jTapHint, auto: true, body: () => singleChips(t.jLongestL, "longest") });
+    if (has("feeds_count")) Q.push({ icon: "🍼", name: t.jFeeds, body: () => (
+      <Stepper label="" unit={t.jFeedsU} value={jData.feeds}
+        onDec={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))}
+        onInc={() => setJData(d => ({ ...d, feeds: Math.min(24, d.feeds + 1) }))} />
+    ) });
+    if (has("feed_types")) Q.push({ icon: "🥛", name: t.jFeedType, sub: t.jTapHint, auto: true, body: () => (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {t.jFeedTypes.map((label, i) => {
+          const on = jData.feedTypeIdx === i;
+          return (
+            <button key={i} onClick={() => auto({ feedType: label, feedTypeIdx: i })} style={{ padding: "16px 10px", borderRadius: 16, textAlign: "center", border: `2px solid ${on ? P : "#e4ecf2"}`, background: on ? PL : "white", boxShadow: on ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)", fontFamily: ff }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>{t.jFeedIcons[i]}</div>
+              <div style={{ fontSize: 12, fontWeight: on ? 600 : 400, color: on ? PD : "#3d5a73" }}>{label}</div>
+            </button>
+          );
+        })}
+      </div>
+    ) });
+    if (has("feed_types")) Q.push({ icon: "💭", name: t.jFeedConcernsTitle, body: () => multiChips(t.jFeedIssueItems, "feedIssues") });
+    if (has("wet_diapers")) Q.push({ icon: "💧", name: t.jDiapersTitle, body: () => (
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}><Stepper label={t.jWet} unit={t.jWetU} value={jData.wet}
+          onDec={() => setJData(d => ({ ...d, wet: Math.max(0, d.wet - 1) }))}
+          onInc={() => setJData(d => ({ ...d, wet: Math.min(15, d.wet + 1) }))} /></div>
+        <div style={{ flex: 1 }}><Stepper label={t.jDirty} unit={t.jDirtyU} value={jData.dirty}
+          onDec={() => setJData(d => ({ ...d, dirty: Math.max(0, d.dirty - 1) }))}
+          onInc={() => setJData(d => ({ ...d, dirty: Math.min(10, d.dirty + 1) }))} /></div>
+      </div>
+    ) });
+    if (has("stool_color")) Q.push({ icon: "🎨", name: t.jStool, sub: t.jTapHint, auto: true, body: () => (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+        {STOOL_VALS.map((v, i) => {
+          const on = jData.stool === v;
+          return (
+            <button key={v} onClick={() => auto({ stool: v })} style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderRadius: 22, border: `2px solid ${on ? PD : "#d0dce5"}`, background: on ? PL : "white", color: on ? PD : "#7a8d9e", fontSize: 13, fontWeight: on ? 600 : 400, fontFamily: ff }}>
+              <span style={{ width: 16, height: 16, borderRadius: "50%", background: STOOL_HEX[v], border: "1px solid #d0dce5" }} />
+              {t.jStoolL[i]}
+            </button>
+          );
+        })}
+      </div>
+    ) });
+    if (has("fussiness")) Q.push({ icon: "👶", name: t.jBabyMood, sub: t.jTapHint, auto: true, body: () => emojiScale(t.jBMoods, t.jBMoodL, "bmood") });
+    if (has("health_flags")) Q.push({ icon: "🩺", name: t.jSymptomLabel, body: () => multiChips(t.jSymptomItems, "symptoms", true) });
+    if (has("pain_level")) Q.push({ icon: "🌡️", name: t.jPain, body: () => (
+      <div style={{ background: "white", borderRadius: 16, padding: "20px 18px", boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <span style={{ fontSize: 40, fontWeight: 700, color: jData.pain >= 7 ? WARN : jData.pain >= 4 ? "#F9A825" : OK }}>{jData.pain}</span>
+          <span style={{ fontSize: 14, color: "#99aab5" }}>/10</span>
+        </div>
+        <input type="range" min="0" max="10" step="1" value={jData.pain} onChange={e => setJData(d => ({ ...d, pain: +e.target.value }))} style={{ width: "100%", accentColor: P, cursor: "pointer" }} />
+      </div>
+    ) });
+    if (has("bleeding")) Q.push({ icon: "🩸", name: t.jBleeding, sub: t.jTapHint, auto: true, body: () => singleChips(t.jBleedingL, "bleeding", { warn: true, oneCol: false }) });
+    if (has("bf") && cfg.feedingMethod !== "formula") Q.push({ icon: "🤱", name: t.jBfTitle, body: () => (
+      <div style={{ display: "flex", gap: 12 }}>
+        {[{ k: "bfPain", label: t.jBfPain }, { k: "supplyConcern", label: t.jSupply }].map(({ k, label }) => {
+          const on = jData[k];
+          return <button key={k} onClick={() => setJData(d => ({ ...d, [k]: !d[k] }))} style={{ flex: 1, padding: "18px 12px", borderRadius: 16, fontSize: 13, fontFamily: ff, textAlign: "center", border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white", color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400 }}>{on ? "✓ " : ""}{label}</button>;
+        })}
+      </div>
+    ) });
+    if (has("checkin")) Q.push({ icon: "💗", name: lang === "ar" ? checkin.ar : checkin.en, sub: t.jCheckinLabel, auto: true, body: () => (
+      <div style={{ display: "flex", gap: 10 }}>
+        {CHECKIN_RESPONSES.map((r) => {
+          const on = jData.checkinResp === r.value;
+          return <button key={r.value} onClick={() => auto({ checkinResp: r.value })} style={{ flex: 1, padding: "18px 8px", borderRadius: 16, fontSize: 13, fontFamily: ff, border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white", color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400 }}>{lang === "ar" ? r.ar : r.en}</button>;
+        })}
+      </div>
+    ) });
+    if (has("received_help")) Q.push({ icon: "🤝", name: t.jSupportLabel, sub: t.jTapHint, auto: true, body: () => singleChips(t.jSupportOpts, "support", { oneCol: true }) });
+    Q.push({ icon: "💬", name: t.jNotesTitle, body: () => (
+      <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))} placeholder={t.jWellbeingPH}
+        style={{ width: "100%", height: 130, padding: "16px", borderRadius: 18, border: "2px solid #e4ecf2", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.7, color: "#1e2d3d", boxShadow: "0 2px 8px rgba(0,0,0,.04)" }} />
+    ) });
+
+    const STEPS = Q.length;
+    const idx = Math.min(jStep, STEPS - 1);
+    const q = Q[idx];
+    const goNext = () => { if (idx < STEPS - 1) setJStep(idx + 1); else saveJournal(); };
+    const auto = (patch) => { setJData(d => ({ ...d, ...patch })); setTimeout(goNext, 220); };
+
     return (
       <div className="screen-in" style={{ minHeight: "100vh", background: JBG, display: "flex", flexDirection: "column", direction: dir, fontFamily: ff }}>
         <style>{css}</style>
 
-        {/* Header with dot progress */}
-        <div style={{ padding: "14px 20px", background: "white", borderBottom: "1px solid #e8eff4", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Header: back · slim progress bar · skip-all */}
+        <div style={{ padding: "14px 20px", background: "white", borderBottom: "1px solid #e8eff4", display: "flex", alignItems: "center", gap: 14 }}>
           <button onClick={goHome} style={{ background: "none", border: "none", padding: 0 }}>{IC.back}</button>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {Array.from({ length: STEPS }).map((_, i) => (
-              <div key={i} style={{ height: 6, borderRadius: 3, background: i <= jStep ? P : "#d0dce5", width: i === jStep ? 22 : 6, transition: "all .3s ease" }} />
-            ))}
+          <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#e4ecf2", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${((idx + 1) / STEPS) * 100}%`, background: PG, borderRadius: 3, transition: "width .35s cubic-bezier(.25,.46,.45,.94)" }} />
           </div>
           <button onClick={goHome} style={{ background: "none", border: "none", fontSize: 12, color: "#b0bec5", fontFamily: ff }}>{t.jSkip}</button>
         </div>
 
-        {/* Step meta */}
-        <div key={`meta-${jStep}`} className="fade-up" style={{ padding: "28px 26px 0", textAlign: "center" }}>
-          <div style={{ fontSize: 44, marginBottom: 10 }}>{t.jStepIcons[jStep]}</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#1e2d3d", marginBottom: 5 }}>{t.jStepNames[jStep]}</div>
-          <div style={{ fontSize: 13, color: "#99aab5" }}>{t.jStepSubs[jStep]}</div>
+        {/* Question meta */}
+        <div key={`meta-${idx}`} className="fade-up" style={{ padding: "30px 26px 4px", textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>{q.icon}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#1e2d3d", marginBottom: 6, lineHeight: 1.4 }}>{q.name}</div>
+          {q.sub && <div style={{ fontSize: 12, color: "#b0bec5" }}>{q.sub}</div>}
         </div>
 
-        {/* Step content */}
-        <div key={`content-${jStep}`} className="fade-up" style={{ flex: 1, padding: "24px 20px", overflowY: "auto" }}>
-
-          {/* Step 0: Your mood */}
-          {jStep === 0 && (
-            <div style={{ display: "flex", gap: 8 }}>
-              {t.jMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, mood: i }))} style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                  padding: "18px 4px", borderRadius: 20,
-                  border: `2px solid ${jData.mood === i ? P : "#e4ecf2"}`,
-                  background: jData.mood === i ? PL : "white",
-                  boxShadow: jData.mood === i ? `0 0 0 4px ${P}28` : "0 2px 8px rgba(0,0,0,.04)",
-                  transform: jData.mood === i ? "scale(1.07)" : "scale(1)",
-                  transition: "all .18s", fontFamily: ff,
-                }}>
-                  <span style={{ fontSize: 34 }}>{e}</span>
-                  <span style={{ fontSize: 9, color: jData.mood === i ? PD : "#99aab5", fontWeight: 600, textAlign: "center" }}>{t.jMoodL[i]}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Step 1: Sleep + night wakes */}
-          {jStep === 1 && <>
-            <div style={{ background: "white", borderRadius: 20, padding: "24px 20px", marginBottom: 18, boxShadow: "0 2px 12px rgba(0,0,0,.05)" }}>
-              <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <span style={{ fontSize: 54, fontWeight: 700, color: sq.color }}>{jData.sleep}</span>
-                <span style={{ fontSize: 16, color: "#99aab5", marginLeft: 4 }}>{t.jSleepU}</span>
-                <div style={{ fontSize: 13, color: sq.color, marginTop: 6, fontWeight: 500 }}>{sq.label}</div>
-              </div>
-              <input type="range" min="0" max="12" step=".5" value={jData.sleep}
-                onChange={e => setJData(d => ({ ...d, sleep: +e.target.value }))}
-                style={{ width: "100%", accentColor: P, cursor: "pointer" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                <span style={{ fontSize: 10, color: "#c0cdd8" }}>0h</span>
-                <span style={{ fontSize: 10, color: "#c0cdd8" }}>12h</span>
-              </div>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jNightWakes}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
-              {t.jWakeOpts.map((opt, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, nightWakes: i }))} style={{
-                  padding: "16px 10px", borderRadius: 16, textAlign: "center",
-                  border: `2px solid ${jData.nightWakes === i ? P : "#e4ecf2"}`,
-                  background: jData.nightWakes === i ? PL : "white",
-                  boxShadow: jData.nightWakes === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
-                  fontSize: 12, fontWeight: jData.nightWakes === i ? 600 : 400,
-                  color: jData.nightWakes === i ? PD : "#3d5a73",
-                  transition: "all .15s", fontFamily: ff,
-                }}>{opt}</button>
-              ))}
-            </div>
-            <Stepper label={t.jNaps} unit={t.jNapsU} value={jData.naps}
-              onDec={() => setJData(d => ({ ...d, naps: Math.max(0, d.naps - 1) }))}
-              onInc={() => setJData(d => ({ ...d, naps: Math.min(8, d.naps + 1) }))} />
-            <ChipRow label={t.jLongest} options={t.jLongestL} selected={jData.longest}
-              onSelect={(v) => setJData(d => ({ ...d, longest: v }))} />
-          </>}
-
-          {/* Step 2: Feeding */}
-          {jStep === 2 && <>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jFeedType}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
-              {t.jFeedTypes.map((label, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, feedType: label, feedTypeIdx: i }))} style={{
-                  padding: "16px 10px", borderRadius: 16, textAlign: "center",
-                  border: `2px solid ${jData.feedTypeIdx === i ? P : "#e4ecf2"}`,
-                  background: jData.feedTypeIdx === i ? PL : "white",
-                  boxShadow: jData.feedTypeIdx === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
-                  transition: "all .15s", fontFamily: ff,
-                }}>
-                  <div style={{ fontSize: 28, marginBottom: 6 }}>{t.jFeedIcons[i]}</div>
-                  <div style={{ fontSize: 12, fontWeight: jData.feedTypeIdx === i ? 600 : 400, color: jData.feedTypeIdx === i ? PD : "#3d5a73" }}>{label}</div>
-                </button>
-              ))}
-            </div>
-            <Stepper label={t.jFeeds} unit={t.jFeedsU} value={jData.feeds}
-              onDec={() => setJData(d => ({ ...d, feeds: Math.max(0, d.feeds - 1) }))}
-              onInc={() => setJData(d => ({ ...d, feeds: Math.min(24, d.feeds + 1) }))} />
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <Stepper label={t.jWet} unit={t.jWetU} value={jData.wet}
-                  onDec={() => setJData(d => ({ ...d, wet: Math.max(0, d.wet - 1) }))}
-                  onInc={() => setJData(d => ({ ...d, wet: Math.min(15, d.wet + 1) }))} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Stepper label={t.jDirty} unit={t.jDirtyU} value={jData.dirty}
-                  onDec={() => setJData(d => ({ ...d, dirty: Math.max(0, d.dirty - 1) }))}
-                  onInc={() => setJData(d => ({ ...d, dirty: Math.min(10, d.dirty + 1) }))} />
-              </div>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jStool}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
-              {STOOL_VALS.map((v, i) => {
-                const on = jData.stool === v;
-                return (
-                  <button key={v} onClick={() => setJData(d => ({ ...d, stool: on ? "" : v }))} style={{
-                    display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 22,
-                    border: `2px solid ${on ? PD : "#d0dce5"}`, background: on ? PL : "white",
-                    color: on ? PD : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff,
-                  }}>
-                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: STOOL_HEX[v], border: "1px solid #d0dce5", display: "inline-block" }} />
-                    {t.jStoolL[i]}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#7a8d9e", marginBottom: 10 }}>{t.jFeedIssueLabel}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {t.jFeedIssueItems.map((item, i) => {
-                const on = jData.feedIssues?.includes(i);
-                return <button key={i} onClick={() => setJData(d => ({ ...d, feedIssues: on ? d.feedIssues.filter(x => x !== i) : [...(d.feedIssues || []), i] }))}
-                  style={{ padding: "9px 16px", borderRadius: 22, border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white", color: on ? PD : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>
-                  {on ? "✓ " : ""}{item}
-                </button>;
-              })}
-            </div>
-          </>}
-
-          {/* Step 3: Baby today */}
-          {jStep === 3 && <>
-            <div style={{ display: "flex", gap: 8, marginBottom: 26 }}>
-              {t.jBMoods.map((e, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, bmood: i }))} style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-                  padding: "16px 4px", borderRadius: 20,
-                  border: `2px solid ${jData.bmood === i ? P : "#e4ecf2"}`,
-                  background: jData.bmood === i ? PL : "white",
-                  boxShadow: jData.bmood === i ? `0 0 0 4px ${P}28` : "0 2px 8px rgba(0,0,0,.04)",
-                  transform: jData.bmood === i ? "scale(1.07)" : "scale(1)",
-                  transition: "all .18s", fontFamily: ff,
-                }}>
-                  <span style={{ fontSize: 30 }}>{e}</span>
-                  <span style={{ fontSize: 9, color: jData.bmood === i ? PD : "#99aab5", fontWeight: 600, textAlign: "center" }}>{t.jBMoodL[i]}</span>
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#7a8d9e", marginBottom: 10 }}>{t.jSymptomLabel}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {t.jSymptomItems.map((item, i) => {
-                const on = jData.symptoms?.includes(i);
-                return <button key={i} onClick={() => setJData(d => ({ ...d, symptoms: on ? d.symptoms.filter(x => x !== i) : [...(d.symptoms || []), i] }))}
-                  style={{ padding: "9px 16px", borderRadius: 22, border: `2px solid ${on ? WARN : "#d0dce5"}`, background: on ? "#FFF3E0" : "white", color: on ? WARN : "#7a8d9e", fontSize: 12, fontWeight: on ? 600 : 400, fontFamily: ff, transition: "all .15s" }}>
-                  {on ? "⚠ " : ""}{item}
-                </button>;
-              })}
-            </div>
-          </>}
-
-          {/* Step 4: Wellbeing */}
-          {jStep === 4 && <>
-            {/* M6 rotating EPDS-derived check-in (adapted, not diagnostic) */}
-            <div style={{ background: PL, borderRadius: 16, padding: "16px", marginBottom: 22 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: PD, marginBottom: 8 }}>🌸 {t.jCheckinLabel}</div>
-              <div style={{ fontSize: 14, color: "#1e2d3d", lineHeight: 1.6, marginBottom: 12 }}>{lang === "ar" ? checkin.ar : checkin.en}</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {CHECKIN_RESPONSES.map((r) => {
-                  const on = jData.checkinResp === r.value;
-                  return (
-                    <button key={r.value} onClick={() => setJData(d => ({ ...d, checkinResp: on ? -1 : r.value }))} style={{
-                      flex: 1, padding: "10px 6px", borderRadius: 12, fontSize: 12, fontFamily: ff,
-                      border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? "white" : "transparent",
-                      color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400,
-                    }}>{lang === "ar" ? r.ar : r.en}</button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Postpartum recovery — pain always; bleeding only weeks 0-8 (§6.3) */}
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 8 }}>{t.jPain}</div>
-            <div style={{ background: "white", borderRadius: 16, padding: "14px 18px", marginBottom: 22, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }}>
-              <div style={{ textAlign: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 32, fontWeight: 700, color: jData.pain >= 7 ? WARN : jData.pain >= 4 ? "#F9A825" : OK }}>{jData.pain}</span>
-                <span style={{ fontSize: 13, color: "#99aab5" }}>/10</span>
-              </div>
-              <input type="range" min="0" max="10" step="1" value={jData.pain}
-                onChange={e => setJData(d => ({ ...d, pain: +e.target.value }))}
-                style={{ width: "100%", accentColor: P, cursor: "pointer" }} />
-            </div>
-            <ChipRow label={t.jBleeding} options={t.jBleedingL} selected={jData.bleeding} warn
-              onSelect={(v) => setJData(d => ({ ...d, bleeding: v }))} />
-
-            {(profile?.baby?.feeding_method !== "formula") && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
-                {[{ k: "bfPain", label: t.jBfPain }, { k: "supplyConcern", label: t.jSupply }].map(({ k, label }) => {
-                  const on = jData[k];
-                  return (
-                    <button key={k} onClick={() => setJData(d => ({ ...d, [k]: !d[k] }))} style={{
-                      flex: 1, padding: "12px 10px", borderRadius: 14, fontSize: 12, fontFamily: ff, textAlign: "center",
-                      border: `2px solid ${on ? P : "#d0dce5"}`, background: on ? PL : "white",
-                      color: on ? PD : "#7a8d9e", fontWeight: on ? 600 : 400,
-                    }}>{on ? "✓ " : ""}{label}</button>
-                  );
-                })}
-              </div>
-            )}
-
-            <textarea value={jData.notes} onChange={e => setJData(d => ({ ...d, notes: e.target.value }))}
-              placeholder={t.jWellbeingPH}
-              style={{ width: "100%", height: 110, padding: "16px", borderRadius: 18, border: "2px solid #e4ecf2", background: "white", fontSize: 14, fontFamily: ff, direction: dir, resize: "none", outline: "none", lineHeight: 1.7, color: "#1e2d3d", marginBottom: 24, boxShadow: "0 2px 8px rgba(0,0,0,.04)" }} />
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#3d5a73", marginBottom: 12 }}>{t.jSupportLabel}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {t.jSupportOpts.map((opt, i) => (
-                <button key={i} onClick={() => setJData(d => ({ ...d, support: i }))} style={{
-                  padding: "16px 20px", borderRadius: 16, textAlign: rtl ? "right" : "left",
-                  border: `2px solid ${jData.support === i ? P : "#e4ecf2"}`,
-                  background: jData.support === i ? PL : "white",
-                  boxShadow: jData.support === i ? `0 0 0 3px ${P}25` : "0 1px 4px rgba(0,0,0,.04)",
-                  fontSize: 13, fontWeight: jData.support === i ? 600 : 400,
-                  color: jData.support === i ? PD : "#3d5a73",
-                  transition: "all .15s", fontFamily: ff,
-                }}>
-                  {jData.support === i ? "✓ " : ""}{opt}
-                </button>
-              ))}
-            </div>
-          </>}
+        {/* Question body */}
+        <div key={`content-${idx}`} className="fade-up" style={{ flex: 1, padding: "22px 20px", overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          {q.body()}
         </div>
 
-        {/* Navigation */}
+        {/* Footer: continue / save (auto-advance questions can tap through) */}
         <div style={{ padding: "12px 22px env(safe-area-inset-bottom,20px)", background: "white", borderTop: "1px solid #e8eff4" }}>
-          <Btn full onClick={() => { if (jStep < STEPS - 1) setJStep(s => s + 1); else saveJournal(); }} style={{ marginBottom: 6 }}>
-            {jStep === STEPS - 1 ? t.jSave : t.jContinue}
+          <Btn full onClick={goNext} style={{ marginBottom: 6 }}>
+            {idx === STEPS - 1 ? t.jSave : (q.auto ? t.jSkip : t.jContinue)}
           </Btn>
-          {jStep > 0 && (
-            <button onClick={() => setJStep(s => s - 1)} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "8px", fontSize: 13, color: "#b0bec5", fontFamily: ff, textAlign: "center" }}>
+          {idx > 0 && (
+            <button onClick={() => setJStep(idx - 1)} style={{ display: "block", width: "100%", background: "none", border: "none", padding: "8px", fontSize: 13, color: "#b0bec5", fontFamily: ff, textAlign: "center" }}>
               {rtl ? "→" : "←"} {t.jBack}
             </button>
           )}
